@@ -15,8 +15,23 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('email')->unique();
+            $table->string('username')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            
+            // Kolom kustom dari seeder
+            $table->string('role');
+            $table->string('nomor_pegawai')->nullable();
+            $table->string('phone')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->boolean('enable_2fa')->default(false);
+            $table->unsignedBigInteger('partner_id')->nullable();
+            
+            // === KOLOM BARU (PERBAIKAN) ===
+            $table->timestamp('last_login_at')->nullable();
+            $table->string('device_id')->nullable();
+            // === AKHIR PERBAIKAN ===
+
             $table->rememberToken();
             $table->timestamps();
         });
