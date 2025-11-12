@@ -31,6 +31,7 @@
         "CACHE_DRIVER": "array",
         "LOG_CHANNEL": "stderr",
         "SESSION_DRIVER": "cookie",
+        "SESSION_DOMAIN" : ".vercel.app",
 
         "DB_CONNECTION": "pgsql",
         "DB_PORT": "5432",
