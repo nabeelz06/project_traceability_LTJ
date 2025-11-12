@@ -1,15 +1,29 @@
-
 {
     "version": 2,
     "framework": null,
+    "builds": [
+        {
+            "src": "package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "public/build"
+            }
+        },
+        {
+            "src": "api/index.php",
+            "use": "vercel-php@0.7.4"
+        }
+    ],
     "functions": {
-        "api/index.php": { "runtime": "vercel-php@0.7.4" }
+        "api/index.php": {
+            "runtime": "vercel-php@0.7.4"
+        }
     },
     "outputDirectory": "public",
     "routes": [
         {
-            "src": "/build/(.*)",
-            "dest": "/build/$1"
+            "src": "/(build|images|css|js|favicon.ico|robots.txt)(.*)",
+            "dest": "/$1$2"
         },
         {
             "src": "/(.*)",
@@ -18,23 +32,17 @@
     ],
     "env": {
         "APP_ENV": "production",
-        "APP_DEBUG": "true",
-        "APP_URL": "https://project-traceability-ltj.vercel.app/",
-
+        "APP_DEBUG": "false",
         "APP_CONFIG_CACHE": "/tmp/config.php",
         "APP_EVENTS_CACHE": "/tmp/events.php",
         "APP_PACKAGES_CACHE": "/tmp/packages.php",
         "APP_ROUTES_CACHE": "/tmp/routes.php",
         "APP_SERVICES_CACHE": "/tmp/services.php",
         "VIEW_COMPILED_PATH": "/tmp",
-
         "CACHE_DRIVER": "array",
         "LOG_CHANNEL": "stderr",
         "SESSION_DRIVER": "cookie",
-        "SESSION_DOMAIN" : ".vercel.app",
-
         "DB_CONNECTION": "pgsql",
-        "DB_PORT": "5432",
-        "MYSQL_ATTR_SSL_CA": "/etc/pki/tls/certs/ca-bundle.crt"
+        "DB_PORT": "5432"
     }
 }
