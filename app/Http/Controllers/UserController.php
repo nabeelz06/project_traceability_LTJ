@@ -1,24 +1,20 @@
 <?php
 
-/**
- * File: app/Http/Controllers/UserController.php
- * Controller untuk manajemen user (Super Admin only)
- */
-
 namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Partner;
 use App\Models\SystemLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rules;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
     /**
-     * Display list of users
+     * Display list users dengan filter
      */
     public function index(Request $request)
     {
@@ -35,13 +31,17 @@ class UserController extends Controller
             $query->where('is_active', $isActive);
         }
 
+        // Filter by partner
+        if ($request->filled('partner_id')) {
+            $query->where('partner_id', $request->partner_id);
+        }
+
         // Search by name or email
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
-                $q->where('name', 'like', "%$search%")
-                  ->orWhere('email', 'like', "%$search%")
-                  ->orWhere('nomor_pegawai', 'like', "%$search%");
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
@@ -52,7 +52,7 @@ class UserController extends Controller
     }
 
     /**
-     * Show create user form
+     * Show form create user
      */
     public function create()
     {
@@ -68,51 +68,74 @@ class UserController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'username' => 'nullable|string|unique:users,username',
-            'role' => 'required|in:super_admin,admin,operator,mitra_middlestream,mitra_downstream,auditor',
-            'nomor_pegawai' => 'required_if:role,super_admin,admin,operator',
-            'partner_id' => 'required_if:role,mitra_middlestream,mitra_downstream',
+            'password' => 'required|string|min:8|confirmed',
+            'role' => 'required|in:super_admin,admin,operator,mitra_middlestream,mitra_downstream,g_bim,g_esdm',
             'phone' => 'nullable|string|max:20',
-            'verification_doc' => 'nullable|file|mimes:pdf,png,jpg|max:2048',
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-            'enable_2fa' => 'boolean',
+            'partner_id' => 'nullable|exists:partners,id',
         ]);
 
-        // Handle file upload
-        if ($request->hasFile('verification_doc')) {
-            $validated['verification_doc'] = $request->file('verification_doc')
-                ->store('verification_docs', 'public');
+        // Validasi partner_id harus diisi untuk role mitra
+        if (in_array($validated['role'], ['mitra_middlestream', 'mitra_downstream'])) {
+            if (empty($validated['partner_id'])) {
+                return back()->withInput()
+                    ->withErrors(['partner_id' => 'Partner harus dipilih untuk role mitra.']);
+            }
+        } else {
+            // Role non-mitra tidak boleh punya partner_id
+            $validated['partner_id'] = null;
         }
 
-        // Hash password
-        $validated['password'] = Hash::make($validated['password']);
-        $validated['is_active'] = true;
+        DB::beginTransaction();
+        try {
+            $validated['password'] = Hash::make($validated['password']);
+            $validated['is_active'] = true;
 
-        // Create user
-        $user = User::create($validated);
+            $user = User::create($validated);
 
-        // Log activity
-        SystemLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'user_created',
-            'details' => "User baru dibuat: {$user->name} ({$user->email})",
-        ]);
+            // Log aktivitas
+            SystemLog::create([
+                'user_id' => Auth::id(),
+                'action' => 'user_created',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'details' => [
+                    'user_id' => $user->id,
+                    'user_name' => $user->name,
+                    'user_role' => $user->role,
+                ],
+            ]);
 
-        return redirect()->route('admin.users.index')
-            ->with('success', "User {$user->name} berhasil dibuat. Email aktivasi telah dikirim.");
+            DB::commit();
+
+            return redirect()->route('admin.users.index')
+                ->with('success', 'User ' . $user->name . ' berhasil ditambahkan.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()
+                ->with('error', 'Gagal menambahkan user: ' . $e->getMessage());
+        }
     }
 
     /**
-     * Show user detail
+     * Show detail user
      */
     public function show(User $user)
     {
-        $user->load(['partner', 'createdBatches', 'batchLogs']);
-        return view('admin.users.show', compact('user'));
+        $user->load('partner');
+        
+        // Get recent activities
+        $recentActivities = \App\Models\BatchLog::where('actor_user_id', $user->id)
+            ->with('batch')
+            ->orderBy('created_at', 'desc')
+            ->take(10)
+            ->get();
+
+        return view('admin.users.show', compact('user', 'recentActivities'));
     }
 
     /**
-     * Show edit user form
+     * Show form edit user
      */
     public function edit(User $user)
     {
@@ -121,84 +144,93 @@ class UserController extends Controller
     }
 
     /**
-     * Update user
+     * Update user data
      */
     public function update(Request $request, User $user)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email,' . $user->id,
-            'username' => 'nullable|string|unique:users,username,' . $user->id,
-            'nomor_pegawai' => 'required_if:role,super_admin,admin,operator',
-            'partner_id' => 'required_if:role,mitra_middlestream,mitra_downstream',
+            'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
+            'role' => 'required|in:super_admin,admin,operator,mitra_middlestream,mitra_downstream,g_bim,g_esdm',
             'phone' => 'nullable|string|max:20',
-            'verification_doc' => 'nullable|file|mimes:pdf,png,jpg|max:2048',
-            'enable_2fa' => 'boolean',
+            'partner_id' => 'nullable|exists:partners,id',
+            'is_active' => 'required|boolean',
         ]);
 
-        // Handle file upload
-        if ($request->hasFile('verification_doc')) {
-            // Delete old file
-            if ($user->verification_doc) {
-                Storage::disk('public')->delete($user->verification_doc);
+        // Validasi partner_id untuk role mitra
+        if (in_array($validated['role'], ['mitra_middlestream', 'mitra_downstream'])) {
+            if (empty($validated['partner_id'])) {
+                return back()->withInput()
+                    ->withErrors(['partner_id' => 'Partner harus dipilih untuk role mitra.']);
             }
-            $validated['verification_doc'] = $request->file('verification_doc')
-                ->store('verification_docs', 'public');
+        } else {
+            $validated['partner_id'] = null;
         }
 
-        $user->update($validated);
+        DB::beginTransaction();
+        try {
+            $user->update($validated);
 
-        SystemLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'user_updated',
-            'details' => "User diupdate: {$user->name}",
-        ]);
+            // Log aktivitas
+            SystemLog::create([
+                'user_id' => Auth::id(),
+                'action' => 'user_updated',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'details' => [
+                    'user_id' => $user->id,
+                    'user_name' => $user->name,
+                ],
+            ]);
 
-        return redirect()->route('admin.users.index')
-            ->with('success', 'User berhasil diupdate.');
+            DB::commit();
+
+            return redirect()->route('admin.users.show', $user)
+                ->with('success', 'Data user berhasil diperbarui.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()
+                ->with('error', 'Gagal memperbarui user: ' . $e->getMessage());
+        }
     }
 
     /**
-     * Delete user (soft delete)
-     */
-    public function destroy(User $user)
-    {
-        if ($user->id === auth()->id()) {
-            return back()->with('error', 'Anda tidak dapat menghapus akun sendiri.');
-        }
-
-        $user->delete();
-
-        SystemLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'user_deleted',
-            'details' => "User dihapus: {$user->name}",
-        ]);
-
-        return redirect()->route('admin.users.index')
-            ->with('success', 'User berhasil dihapus.');
-    }
-
-    /**
-     * Toggle user active status
+     * Toggle user status (active/inactive)
      */
     public function toggleStatus(User $user)
     {
-        if ($user->id === auth()->id()) {
-            return back()->with('error', 'Anda tidak dapat menonaktifkan akun sendiri.');
+        // Tidak bisa disable diri sendiri
+        if ($user->id === Auth::id()) {
+            return back()->with('error', 'Anda tidak dapat menonaktifkan akun Anda sendiri.');
         }
 
-        $user->update(['is_active' => !$user->is_active]);
+        DB::beginTransaction();
+        try {
+            $newStatus = !$user->is_active;
+            $user->update(['is_active' => $newStatus]);
 
-        $status = $user->is_active ? 'diaktifkan' : 'dinonaktifkan';
+            // Log aktivitas
+            SystemLog::create([
+                'user_id' => Auth::id(),
+                'action' => $newStatus ? 'user_activated' : 'user_deactivated',
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+                'details' => [
+                    'user_id' => $user->id,
+                    'user_name' => $user->name,
+                ],
+            ]);
 
-        SystemLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'user_status_changed',
-            'details' => "User {$status}: {$user->name}",
-        ]);
+            DB::commit();
 
-        return back()->with('success', "User berhasil {$status}.");
+            $message = $newStatus ? 'User berhasil diaktifkan.' : 'User berhasil dinonaktifkan.';
+            return back()->with('success', $message);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Gagal mengubah status user: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -207,19 +239,77 @@ class UserController extends Controller
     public function resetPassword(Request $request, User $user)
     {
         $validated = $request->validate([
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'new_password' => 'required|string|min:8|confirmed',
         ]);
 
-        $user->update([
-            'password' => Hash::make($validated['password'])
-        ]);
+        DB::beginTransaction();
+        try {
+            $user->update([
+                'password' => Hash::make($validated['new_password'])
+            ]);
 
-        SystemLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'user_password_reset',
-            'details' => "Password direset untuk user: {$user->name}",
-        ]);
+            // Log aktivitas
+            SystemLog::create([
+                'user_id' => Auth::id(),
+                'action' => 'user_password_reset',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'details' => [
+                    'user_id' => $user->id,
+                    'user_name' => $user->name,
+                ],
+            ]);
 
-        return back()->with('success', 'Password berhasil direset.');
+            DB::commit();
+
+            return back()->with('success', 'Password user berhasil direset.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Gagal reset password: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete user (Super Admin only)
+     */
+    public function destroy(User $user)
+    {
+        // Tidak bisa hapus diri sendiri
+        if ($user->id === Auth::id()) {
+            return back()->with('error', 'Anda tidak dapat menghapus akun Anda sendiri.');
+        }
+
+        // Cek apakah user masih punya aktivitas
+        $hasActivity = \App\Models\BatchLog::where('actor_user_id', $user->id)->exists();
+        if ($hasActivity) {
+            return back()->with('error', 'User tidak dapat dihapus karena memiliki riwayat aktivitas. Nonaktifkan saja.');
+        }
+
+        DB::beginTransaction();
+        try {
+            $userName = $user->name;
+            $user->delete();
+
+            // Log aktivitas
+            SystemLog::create([
+                'user_id' => Auth::id(),
+                'action' => 'user_deleted',
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+                'details' => [
+                    'user_name' => $userName,
+                ],
+            ]);
+
+            DB::commit();
+
+            return redirect()->route('admin.users.index')
+                ->with('success', 'User ' . $userName . ' berhasil dihapus.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Gagal menghapus user: ' . $e->getMessage());
+        }
     }
 }

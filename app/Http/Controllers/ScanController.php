@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\Batch; // Pastikan Model Batch di-import
-use App\Services\TraceabilityService; // Pastikan Service di-import
+use App\Models\Batch;
+use App\Services\TraceabilityService;
 use Illuminate\Support\Facades\Auth;
 
 class ScanController extends Controller
@@ -17,18 +17,21 @@ class ScanController extends Controller
     }
 
     /**
-     * Tampilkan halaman utama operator scan
+     * Halaman utama operator
      */
     public function index()
     {
-        // Untuk saat ini, kita hanya tampilkan view-nya
-        // Anda bisa tambahkan data 'tasks' nanti
-        $tasks = []; // Contoh
-        return view('scan.index', compact('tasks'));
+        $stats = [
+            'today_scans' => 0, // TODO: implement counter
+            'today_checkout' => 0,
+            'today_checkin' => 0,
+        ];
+
+        return view('scan.index', compact('stats'));
     }
 
     /**
-     * Tampilkan halaman checkout
+     * Halaman checkout
      */
     public function showCheckout()
     {
@@ -36,86 +39,114 @@ class ScanController extends Controller
     }
 
     /**
-     * Proses data checkout
+     * Proses checkout
      */
     public function processCheckout(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'tag_uid' => 'required|string',
             'gps_location' => 'nullable|string',
-            'photo' => 'nullable|image|max:2048', // Contoh validasi upload
-            'notes' => 'nullable|string',
+            'photo' => 'nullable|image|max:5120',
+            'notes' => 'nullable|string|max:500',
         ]);
 
-        $batch = Batch::where('rfid_tag_uid', $request->tag_uid)->firstOrFail();
-        
-        // Cek apakah batch siap dikirim
-        if ($batch->status !== 'ready_to_ship') {
-             return back()->withErrors(['tag_uid' => 'Batch ini tidak siap untuk dikirim.']);
+        // Cari batch berdasarkan RFID tag
+        $batch = Batch::where('rfid_tag_uid', $validated['tag_uid'])->first();
+
+        if (!$batch) {
+            return back()->withErrors(['tag_uid' => 'Tag RFID tidak terdaftar dalam sistem.']);
         }
 
-        $data = $request->all();
-        
-        // Logika upload foto (jika ada)
+        // Validasi batch bisa di-checkout
+        if (!$batch->canBeCheckedOut()) {
+            return back()->withErrors(['tag_uid' => 'Batch tidak dapat dikirim. Status saat ini: ' . $batch->getStatusLabel()]);
+        }
+
+        $data = $validated;
+
+        // Upload foto jika ada
         if ($request->hasFile('photo')) {
-            $data['photo_path'] = $request->file('photo')->store('evidence', 'public');
+            $data['photo_path'] = $request->file('photo')->store('checkout_photos', 'public');
         }
 
-        // Gunakan TraceabilityService
-        $result = $this->traceabilityService->processCheckout(
-            $batch, 
-            $data, 
-            Auth::id()
-        );
+        // Proses checkout via service
+        $result = $this->traceabilityService->processCheckout($batch, $data, Auth::id());
 
         if ($result['success']) {
-            return redirect()->route('scan.index')->with('success', 'Batch berhasil di-checkout.');
-        } else {
-            return back()->withErrors(['error' => $result['message']]);
+            return redirect()->route('scan.index')
+                ->with('success', 'Batch ' . $batch->batch_code . ' berhasil di-checkout.');
         }
+
+        return back()->withErrors(['error' => $result['message']]);
     }
 
     /**
-     * Tampilkan halaman checkin
+     * Halaman checkin
      */
     public function showCheckin()
     {
         return view('scan.checkin');
     }
-    
+
     /**
-     * Proses data checkin
+     * Proses checkin
      */
     public function processCheckin(Request $request)
     {
-        // Mirip dengan processCheckout, Anda perlu menambahkan logika
-        // untuk memvalidasi dan memanggil $this->traceabilityService->processCheckin(...)
+        $validated = $request->validate([
+            'tag_uid' => 'required|string',
+            'notes' => 'nullable|string|max:500',
+        ]);
+
+        // Cari batch berdasarkan RFID tag
+        $batch = Batch::where('rfid_tag_uid', $validated['tag_uid'])->first();
+
+        if (!$batch) {
+            return back()->withErrors(['tag_uid' => 'Tag RFID tidak terdaftar dalam sistem.']);
+        }
+
+        // Validasi batch bisa di-checkin
+        if (!$batch->canBeCheckedIn()) {
+            return back()->withErrors(['tag_uid' => 'Batch tidak dapat di-check-in. Status saat ini: ' . $batch->getStatusLabel()]);
+        }
+
+        // Proses checkin via service
+        // Partner ID akan diambil dari user yang login (jika mitra) atau tetap di PT Timah
+        $partnerId = Auth::user()->partner_id ?? null;
         
-        return redirect()->route('scan.index')->with('success', 'Batch berhasil di-checkin (LOGIKA STUB).');
+        $result = $this->traceabilityService->processCheckin($batch, $partnerId, $validated, Auth::id());
+
+        if ($result['success']) {
+            return redirect()->route('scan.index')
+                ->with('success', 'Batch ' . $batch->batch_code . ' berhasil di-check-in.');
+        }
+
+        return back()->withErrors(['error' => $result['message']]);
     }
 
     /**
-     * Tampilkan daftar tugas
+     * Task list operator
      */
     public function tasks()
     {
-        return view('scan.tasks'); // Anda harus membuat view ini
+        // TODO: Implement task management
+        $tasks = [];
+        return view('scan.tasks', compact('tasks'));
     }
 
     /**
-     * Tampilkan riwayat scan
+     * History scan operator
      */
     public function history()
     {
-        return view('scan.history'); // Anda harus membuat view ini
-    }
+        $user = Auth::user();
+        
+        $history = \App\Models\BatchLog::where('actor_user_id', $user->id)
+            ->whereIn('action', ['checked_out', 'checked_in'])
+            ->with(['batch'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
 
-    /**
-     * Endpoint untuk sinkronisasi offline
-     */
-    public function syncOffline(Request $request)
-    {
-        // Logika untuk menerima data offline
-        return response()->json(['success' => true, 'message' => 'Sync received.']);
+        return view('scan.history', compact('history'));
     }
 }

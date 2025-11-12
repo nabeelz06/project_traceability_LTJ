@@ -1,6 +1,6 @@
 <?php
 
-namespace App\HttpKHttp\Controllers;
+namespace App\Http\Controllers;
 
 use App\Models\Batch;
 use App\Models\ProductCode;
@@ -9,6 +9,7 @@ use App\Services\TraceabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 class MitraBatchController extends Controller
 {
@@ -17,21 +18,22 @@ class MitraBatchController extends Controller
     public function __construct(TraceabilityService $traceabilityService)
     {
         $this->traceabilityService = $traceabilityService;
-        
-        // Melindungi semua method di controller ini
         $this->middleware('auth');
     }
 
+    /**
+     * Check-in batch oleh mitra middlestream
+     */
     public function mitraCheckin(Request $request, Batch $batch)
     {
         $user = auth()->user();
         
         if (!$user->isMitraMiddlestream()) {
-            abort(403);
+            abort(403, 'Hanya mitra middlestream yang dapat melakukan check-in.');
         }
 
         if ($batch->status !== 'shipped') {
-            return back()->with('error', 'Batch tidak dalam status pengiriman.');
+            return back()->with('error', 'Batch tidak dalam status pengiriman. Status: ' . $batch->getStatusLabel());
         }
 
         $validated = $request->validate([
@@ -46,12 +48,15 @@ class MitraBatchController extends Controller
         );
 
         if ($result['success']) {
-            return back()->with('success', 'Batch berhasil di-check-in.');
+            return back()->with('success', 'Batch ' . $batch->batch_code . ' berhasil di-check-in.');
         }
 
         return back()->with('error', $result['message']);
     }
 
+    /**
+     * Form buat batch turunan
+     */
     public function createChild(Batch $batch)
     {
         $user = auth()->user();
@@ -70,6 +75,9 @@ class MitraBatchController extends Controller
         return view('mitra.batches.create-child', compact('batch', 'productCodes'));
     }
 
+    /**
+     * Simpan batch turunan
+     */
     public function storeChild(Request $request, Batch $batch)
     {
         $user = auth()->user();
@@ -81,35 +89,56 @@ class MitraBatchController extends Controller
         $validated = $request->validate([
             'product_code' => 'required|string|exists:product_codes,code',
             'container_code' => 'required|string|unique:batches,container_code',
-            'initial_weight' => 'required|numeric|min:0.1',
+            'initial_weight' => 'required|numeric|min:0.01',
             'weight_unit' => 'required|in:kg,ton',
             'notes' => 'nullable|string|max:1000',
+            'lab_certificate' => 'nullable|file|mimes:pdf,jpg,png|max:5120',
         ]);
 
-        // Ubah product_code menjadi product_code_id untuk service
-        $productCodeModel = ProductCode::where('code', $validated['product_code'])->first();
-        if (!$productCodeModel) {
-            return back()->withInput()->with('error', 'Product code tidak valid.');
+        DB::beginTransaction();
+        try {
+            // Buat child batch via service
+            $result = $this->traceabilityService->createChildBatch(
+                $batch,
+                $validated,
+                $user->id
+            );
+
+            if (!$result['success']) {
+                throw new \Exception($result['message']);
+            }
+
+            $childBatch = $result['batch'];
+
+            // Upload lab certificate jika ada
+            if ($request->hasFile('lab_certificate')) {
+                $filePath = $request->file('lab_certificate')->store('lab_certificates', 'public');
+                
+                Document::create([
+                    'batch_id' => $childBatch->id,
+                    'type' => 'lab_certificate',
+                    'file_path' => $filePath,
+                    'file_name' => $request->file('lab_certificate')->getClientOriginalName(),
+                    'uploaded_by_user_id' => $user->id,
+                    'description' => 'Sertifikat lab untuk batch turunan',
+                ]);
+            }
+
+            DB::commit();
+
+            return redirect()->route('batches.show', $childBatch)
+                ->with('success', 'Batch turunan ' . $childBatch->batch_code . ' berhasil dibuat.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withInput()
+                ->with('error', 'Gagal membuat batch turunan: ' . $e->getMessage());
         }
-        
-        $serviceData = $validated;
-        $serviceData['product_code_id'] = $productCodeModel->id;
-        $serviceData['initial_weight'] = $validated['initial_weight']; // Sesuaikan nama kolom jika perlu
-
-        $result = $this->traceabilityService->createChildBatch(
-            $batch,
-            $serviceData,
-            $user->id
-        );
-
-        if ($result['success']) {
-            return redirect()->route('batches.show', $result['batch'])
-                ->with('success', "Child batch {$result['batch']->batch_code} berhasil dibuat.");
-        }
-
-        return back()->withInput()->with('error', $result['message']);
     }
 
+    /**
+     * Check-out batch oleh mitra (kirim ke downstream)
+     */
     public function mitraCheckout(Request $request, Batch $batch)
     {
         $user = auth()->user();
@@ -119,7 +148,7 @@ class MitraBatchController extends Controller
         }
 
         if (!in_array($batch->status, ['ready_to_ship', 'created', 'received'])) {
-            return back()->with('error', 'Batch tidak dapat dikirim.');
+            return back()->with('error', 'Batch tidak dapat dikirim. Status: ' . $batch->getStatusLabel());
         }
 
         $validated = $request->validate([
@@ -127,89 +156,112 @@ class MitraBatchController extends Controller
             'notes' => 'nullable|string|max:500',
         ]);
 
-        $result = $this->traceabilityService->processCheckout($batch, [
-            'notes' => $validated['notes'],
-        ], $user->id);
+        DB::beginTransaction();
+        try {
+            $result = $this->traceabilityService->processCheckout($batch, [
+                'notes' => $validated['notes'],
+            ], $user->id);
 
-        if ($result['success']) {
+            if (!$result['success']) {
+                throw new \Exception($result['message']);
+            }
+
+            // Update destination partner
             $batch->update(['current_owner_partner_id' => $validated['destination_partner_id']]);
-            
-            return back()->with('success', 'Batch berhasil dikirim ke downstream.');
-        }
 
-        return back()->with('error', $result['message']);
+            DB::commit();
+
+            return back()->with('success', 'Batch berhasil dikirim ke downstream.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Gagal: ' . $e->getMessage());
+        }
     }
 
+    /**
+     * Upload dokumen pendukung
+     */
     public function uploadDocument(Request $request, Batch $batch)
     {
         $validated = $request->validate([
             'type' => 'required|in:lab_certificate,bast,surat_jalan,photo,other',
-            'file' => 'required|file|max:5120', // Max 5MB
+            'file' => 'required|file|max:5120',
             'description' => 'nullable|string|max:255',
         ]);
 
-        $filePath = $request->file('file')->store('batch_documents', 'public');
+        try {
+            $filePath = $request->file('file')->store('batch_documents', 'public');
 
-        Document::create([
-            'batch_id' => $batch->id,
-            'type' => $validated['type'],
-            'file_path' => $filePath,
-            'file_name' => $request->file('file')->getClientOriginalName(), // Simpan nama asli file
-            'uploaded_by_user_id' => auth()->id(),
-            'description' => $validated['description'],
-        ]);
+            Document::create([
+                'batch_id' => $batch->id,
+                'type' => $validated['type'],
+                'file_path' => $filePath,
+                'file_name' => $request->file('file')->getClientOriginalName(),
+                'uploaded_by_user_id' => auth()->id(),
+                'description' => $validated['description'],
+            ]);
 
-        return back()->with('success', 'Dokumen berhasil diupload.');
+            return back()->with('success', 'Dokumen berhasil diupload.');
+
+        } catch (\Exception $e) {
+            return back()->with('error', 'Gagal upload dokumen: ' . $e->getMessage());
+        }
     }
 
+    /**
+     * Check-in final oleh downstream (penerima akhir)
+     */
     public function downstreamCheckin(Request $request, Batch $batch)
     {
         $user = auth()->user();
         
         if (!$user->isMitraDownstream()) {
-            abort(403);
+            abort(403, 'Hanya mitra downstream yang dapat melakukan check-in final.');
         }
 
-        if ($batch->status !== 'shipped' || $batch->current_owner_partner_id !== $user->partner_id) {
-            return back()->with('error', 'Batch tidak dapat di-check-in.');
+        if ($batch->status !== 'shipped') {
+            return back()->with('error', 'Batch tidak dalam status pengiriman.');
         }
 
         $validated = $request->validate([
-            'bast_document' => 'required|file|mimes:pdf,jpg,png|max:5120',
-            'signer_name' => 'required|string|max:255',
             'notes' => 'nullable|string|max:500',
+            'bast_document' => 'nullable|file|mimes:pdf,jpg,png|max:5120',
         ]);
 
-        $bastPath = $request->file('bast_document')->store('bast_documents', 'public');
+        DB::beginTransaction();
+        try {
+            // Mark as delivered (status final)
+            $result = $this->traceabilityService->markAsDelivered($batch, $user->id, $validated);
 
-        Document::create([
-            'batch_id' => $batch->id,
-            'type' => 'bast',
-            'file_path' => $bastPath,
-            'file_name' => $request->file('bast_document')->getClientOriginalName(),
-            'uploaded_by_user_id' => $user->id,
-            'description' => "Ditandatangani oleh: {$validated['signer_name']}",
-        ]);
+            if (!$result['success']) {
+                throw new \Exception($result['message']);
+            }
 
-        $result = $this->traceabilityService->processCheckin($batch, $user->partner_id, [
-            'notes' => $validated['notes'] ?? 'Final delivery ke end-user',
-        ], $user->id);
+            // Update owner
+            $batch->update(['current_owner_partner_id' => $user->partner_id]);
 
-        if ($result['success']) {
-            $batch->update(['status' => 'delivered']);
-            
-            BatchLog::create([
-                'batch_id' => $batch->id,
-                'action' => 'status_updated',
-                'previous_status' => 'received',
-                'new_status' => 'delivered',
-                'actor_user_id' => $user->id,
-                'notes' => 'Batch diterima oleh end-user (Downstream).',
-            ]);
+            // Upload BAST jika ada
+            if ($request->hasFile('bast_document')) {
+                $filePath = $request->file('bast_document')->store('bast_documents', 'public');
+                
+                Document::create([
+                    'batch_id' => $batch->id,
+                    'type' => 'bast',
+                    'file_path' => $filePath,
+                    'file_name' => $request->file('bast_document')->getClientOriginalName(),
+                    'uploaded_by_user_id' => $user->id,
+                    'description' => 'BAST penerimaan final',
+                ]);
+            }
 
-            return back()->with('success', 'Batch berhasil diterima. Status: Delivered.');
+            DB::commit();
+
+            return back()->with('success', 'Batch ' . $batch->batch_code . ' berhasil diterima (delivered).');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Gagal: ' . $e->getMessage());
         }
-
-        return back()->with('error', $result['message']);
     }
 }

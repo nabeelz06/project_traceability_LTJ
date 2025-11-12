@@ -1,178 +1,127 @@
 <?php
 
-/**
- * File: app/Http/Controllers/AuthController.php
- * Controller untuk autentikasi dan manajemen profil
- */
-
 namespace App\Http\Controllers;
 
-use App\Models\User;
-use App\Models\SystemLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Password;
-use Illuminate\Validation\Rules;
+use App\Models\SystemLog;
+use Illuminate\Support\Facades\DB;
 
 class AuthController extends Controller
 {
     /**
-     * Tampilkan halaman login
+     * Show login form
      */
     public function showLogin()
     {
+        if (Auth::check()) {
+            return redirect()->route('dashboard');
+        }
+
         return view('auth.login');
     }
 
     /**
-     * Proses login
+     * Process login
      */
     public function login(Request $request)
     {
-        // Validasi input
         $credentials = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required'],
-            'device_id' => ['nullable', 'string'], // Untuk operator handheld
+            'email' => 'required|email',
+            'password' => 'required',
         ]);
 
-        // Cek apakah user exists dan active
-        $user = User::where('email', $credentials['email'])->first();
-        
+        // Cek apakah user exists
+        $user = \App\Models\User::where('email', $credentials['email'])->first();
+
         if (!$user) {
             return back()->withErrors([
-                'email' => 'Email tidak terdaftar.',
+                'email' => 'Email tidak terdaftar dalam sistem.',
             ])->onlyInput('email');
         }
 
+        // Cek apakah user aktif
         if (!$user->is_active) {
             return back()->withErrors([
-                'email' => 'Akun Anda tidak aktif. Hubungi administrator.',
+                'email' => 'Akun Anda telah dinonaktifkan. Hubungi administrator.',
             ])->onlyInput('email');
         }
 
         // Attempt login
-        $remember = $request->boolean('remember');
-        
-        if (Auth::attempt(['email' => $credentials['email'], 'password' => $credentials['password']], $remember)) {
+        if (Auth::attempt($credentials, $request->filled('remember'))) {
             $request->session()->regenerate();
 
-            // Update last login
-            $user = Auth::user();
-            $user->update([
-                'last_login_at' => now(),
-                'device_id' => $request->device_id ?? $user->device_id,
-            ]);
-
-            // Log aktivitas
+            // Log login
             SystemLog::create([
-                'user_id' => $user->id,
-                'action' => 'login',
+                'user_id' => Auth::id(),
+                'action' => 'user_login',
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'details' => ['device_id' => $request->device_id],
+                'details' => [
+                    'login_time' => now()->toDateTimeString(),
+                ],
             ]);
 
-            // Redirect berdasarkan role
-            return $this->redirectBasedOnRole($user);
+            return redirect()->intended(route('dashboard'));
         }
 
         return back()->withErrors([
-            'email' => 'Email atau password salah.',
+            'password' => 'Password yang Anda masukkan salah.',
         ])->onlyInput('email');
     }
 
     /**
-     * Logout user
+     * Logout
      */
     public function logout(Request $request)
     {
-        // Log aktivitas
-        if (Auth::check()) {
-            SystemLog::create([
-                'user_id' => Auth::id(),
-                'action' => 'logout',
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-            ]);
-        }
+        // Log logout sebelum logout
+        SystemLog::create([
+            'user_id' => Auth::id(),
+            'action' => 'user_logout',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'details' => [
+                'logout_time' => now()->toDateTimeString(),
+            ],
+        ]);
 
         Auth::logout();
+
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('login');
+        return redirect()->route('login')->with('success', 'Anda telah logout.');
     }
 
     /**
-     * Tampilkan halaman forgot password
-     */
-    public function showForgotPassword()
-    {
-        return view('auth.forgot-password');
-    }
-
-    /**
-     * Kirim reset password link
-     */
-    public function sendResetLink(Request $request)
-    {
-        $request->validate(['email' => 'required|email']);
-
-        $status = Password::sendResetLink(
-            $request->only('email')
-        );
-
-        return $status === Password::RESET_LINK_SENT
-            ? back()->with('status', 'Link reset password telah dikirim ke email Anda.')
-            : back()->withErrors(['email' => 'Gagal mengirim link reset password.']);
-    }
-
-    /**
-     * Tampilkan halaman reset password
-     */
-    public function showResetPassword($token)
-    {
-        return view('auth.reset-password', ['token' => $token]);
-    }
-
-    /**
-     * Proses reset password
-     */
-    public function resetPassword(Request $request)
-    {
-        $request->validate([
-            'token' => 'required',
-            'email' => 'required|email',
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-        ]);
-
-        $status = Password::reset(
-            $request->only('email', 'password', 'password_confirmation', 'token'),
-            function ($user, $password) {
-                $user->forceFill([
-                    'password' => Hash::make($password)
-                ])->save();
-            }
-        );
-
-        return $status === Password::PASSWORD_RESET
-            ? redirect()->route('login')->with('status', 'Password berhasil direset.')
-            : back()->withErrors(['email' => 'Gagal reset password.']);
-    }
-
-    /**
-     * Tampilkan halaman profile
+     * Show profile page
      */
     public function profile()
     {
         $user = Auth::user();
-        return view('profile.index', compact('user'));
+        $user->load('partner');
+
+        // Get recent activities
+        $recentActivities = \App\Models\BatchLog::where('actor_user_id', $user->id)
+            ->with('batch')
+            ->orderBy('created_at', 'desc')
+            ->take(10)
+            ->get();
+
+        // Get login history
+        $loginHistory = SystemLog::where('user_id', $user->id)
+            ->whereIn('action', ['user_login', 'user_logout'])
+            ->orderBy('created_at', 'desc')
+            ->take(10)
+            ->get();
+
+        return view('auth.profile', compact('user', 'recentActivities', 'loginHistory'));
     }
 
     /**
-     * Update profile user
+     * Update profile
      */
     public function updateProfile(Request $request)
     {
@@ -181,49 +130,76 @@ class AuthController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:20',
-            'email' => 'required|email|unique:users,email,' . $user->id,
         ]);
 
-        $user->update($validated);
+        DB::beginTransaction();
+        try {
+            $user->update($validated);
 
-        return back()->with('success', 'Profil berhasil diupdate.');
+            // Log aktivitas
+            SystemLog::create([
+                'user_id' => $user->id,
+                'action' => 'profile_updated',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'details' => [
+                    'updated_fields' => array_keys($validated),
+                ],
+            ]);
+
+            DB::commit();
+
+            return back()->with('success', 'Profile berhasil diperbarui.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Gagal memperbarui profile: ' . $e->getMessage());
+        }
     }
 
     /**
-     * Update password user
+     * Update password
      */
     public function updatePassword(Request $request)
     {
-        $request->validate([
-            'current_password' => 'required',
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-        ]);
-
         $user = Auth::user();
 
-        if (!Hash::check($request->current_password, $user->password)) {
-            return back()->withErrors(['current_password' => 'Password lama tidak sesuai.']);
-        }
-
-        $user->update([
-            'password' => Hash::make($request->password)
+        $validated = $request->validate([
+            'current_password' => 'required',
+            'new_password' => 'required|string|min:8|confirmed',
         ]);
 
-        return back()->with('success', 'Password berhasil diupdate.');
-    }
+        // Check current password
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            return back()->withErrors([
+                'current_password' => 'Password saat ini tidak sesuai.',
+            ]);
+        }
 
-    /**
-     * Helper: Redirect berdasarkan role
-     */
-    private function redirectBasedOnRole($user)
-    {
-        return match($user->role) {
-            'super_admin', 'admin' => redirect()->route('dashboard'),
-            'operator' => redirect()->route('scan.index'),
-            'mitra_middlestream' => redirect()->route('mitra.dashboard'),
-            'mitra_downstream' => redirect()->route('downstream.dashboard'),
-            'auditor' => redirect()->route('audit.dashboard'),
-            default => redirect()->route('dashboard'),
-        };
+        DB::beginTransaction();
+        try {
+            $user->update([
+                'password' => Hash::make($validated['new_password'])
+            ]);
+
+            // Log aktivitas
+            SystemLog::create([
+                'user_id' => $user->id,
+                'action' => 'password_changed',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'details' => [
+                    'changed_at' => now()->toDateTimeString(),
+                ],
+            ]);
+
+            DB::commit();
+
+            return back()->with('success', 'Password berhasil diubah.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->with('error', 'Gagal mengubah password: ' . $e->getMessage());
+        }
     }
 }
