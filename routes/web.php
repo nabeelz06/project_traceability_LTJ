@@ -14,34 +14,39 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TraceabilityController;
 use App\Http\Controllers\MitraBatchController;
 
-// Landing page (public)
-Route::get('/', function () {
-    return view('welcome');
-})->name('home');
+// --- Rute Tamu (Guest) ---
+Route::middleware('guest')->group(function () {
+    // Mengarahkan root URL ('/') ke halaman login
+    Route::get('/', function () {
+        return redirect()->route('login');
+    });
 
-// Auth routes
-Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-
-// Protected routes (semua yang login)
-Route::middleware('auth')->group(function () {
+    Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+    Route::post('/login', [AuthController::class, 'login'])->name('login.post');
     
-    // Dashboard (routing otomatis berdasarkan role)
+    // Menambahkan kembali rute Password Reset
+    Route::get('/forgot-password', [AuthController::class, 'showForgotPassword'])->name('password.request');
+    Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])->name('password.email');
+    Route::get('/reset-password/{token}', [AuthController::class, 'showResetPassword'])->name('password.reset');
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
+});
+
+
+// --- Rute Terproteksi (Semua yang sudah login) ---
+Route::middleware(['auth', 'user.active'])->group(function () {
+    
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     
-    // Profile management
     Route::get('/profile', [AuthController::class, 'profile'])->name('profile');
     Route::put('/profile', [AuthController::class, 'updateProfile'])->name('profile.update');
     Route::put('/profile/password', [AuthController::class, 'updatePassword'])->name('profile.password');
     
-    // Traceability search (semua role bisa akses)
     Route::get('/traceability/search', [TraceabilityController::class, 'search'])->name('traceability.search');
     Route::get('/traceability/tree/{batch}', [TraceabilityController::class, 'tree'])->name('traceability.tree');
     Route::get('/traceability/chain/{batch}', [TraceabilityController::class, 'getChain'])->name('traceability.chain');
     
-    // Batch management (Admin & Super Admin)
-    Route::middleware('role:super_admin|admin')->group(function () {
+    Route::middleware('role:super_admin,admin')->group(function () {
         Route::get('batches/create', [BatchController::class, 'create'])->name('batches.create');
         Route::post('batches', [BatchController::class, 'store'])->name('batches.store');
         Route::get('batches/{batch}/edit', [BatchController::class, 'edit'])->name('batches.edit');
@@ -54,34 +59,25 @@ Route::middleware('auth')->group(function () {
         Route::get('reports/operational', [ReportController::class, 'operational'])->name('reports.operational');
     });
     
-    // Batch view (semua role yang relevan)
     Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
     Route::get('batches/{batch}', [BatchController::class, 'show'])->name('batches.show');
     
-    // Super Admin only routes
     Route::middleware('role:super_admin')->prefix('admin')->name('admin.')->group(function () {
-        // User management
         Route::resource('users', UserController::class);
         Route::post('users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->name('users.toggle-status');
         Route::post('users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
         
-        // Partner management
         Route::resource('partners', PartnerController::class);
         Route::post('partners/{partner}/approve', [PartnerController::class, 'approve'])->name('partners.approve');
         Route::post('partners/{partner}/reject', [PartnerController::class, 'reject'])->name('partners.reject');
         
-        // Product code management
         Route::resource('product-codes', ProductCodeController::class);
-        
-        // Device management
         Route::resource('devices', DeviceController::class);
         Route::post('devices/{device}/revoke', [DeviceController::class, 'revoke'])->name('devices.revoke');
         
-        // Batch correction & deletion
         Route::put('batches/{batch}/correct', [BatchController::class, 'correct'])->name('batches.correct');
         Route::delete('batches/{batch}/force-delete', [BatchController::class, 'forceDelete'])->name('batches.force-delete');
         
-        // Logs & Reports
         Route::get('logs/system', [ReportController::class, 'systemLogs'])->name('logs.system');
         Route::get('logs/batch', [ReportController::class, 'batchLogs'])->name('logs.batch');
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
@@ -89,7 +85,6 @@ Route::middleware('auth')->group(function () {
         Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
     });
     
-    // Operator routes
     Route::middleware('role:operator')->prefix('scan')->name('scan.')->group(function () {
         Route::get('/', [ScanController::class, 'index'])->name('index');
         Route::get('checkout', [ScanController::class, 'showCheckout'])->name('checkout');
@@ -100,7 +95,6 @@ Route::middleware('auth')->group(function () {
         Route::get('history', [ScanController::class, 'history'])->name('history');
     });
     
-    // Mitra Middlestream routes
     Route::middleware('role:mitra_middlestream')->prefix('mitra')->name('mitra.')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'mitraDashboard'])->name('dashboard');
         Route::post('batches/{batch}/checkin', [MitraBatchController::class, 'mitraCheckin'])->name('batches.checkin');
@@ -111,15 +105,13 @@ Route::middleware('auth')->group(function () {
         Route::get('reports', [ReportController::class, 'mitraReports'])->name('reports');
     });
     
-    // Mitra Downstream routes
     Route::middleware('role:mitra_downstream')->prefix('downstream')->name('downstream.')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'downstreamDashboard'])->name('dashboard');
         Route::post('batches/{batch}/checkin-final', [MitraBatchController::class, 'downstreamCheckin'])->name('batches.checkin-final');
         Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
     });
     
-    // Government (G:BIM & G:ESDM) routes
-    Route::middleware('role:g_bim|g_esdm')->prefix('audit')->name('audit.')->group(function () {
+    Route::middleware('role:auditor')->prefix('audit')->name('audit.')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'auditDashboard'])->name('dashboard');
         Route::get('logs/batch', [ReportController::class, 'batchLogs'])->name('logs.batch');
         Route::get('logs/system', [ReportController::class, 'systemLogs'])->name('logs.system');
