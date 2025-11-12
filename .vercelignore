@@ -1,0 +1,29 @@
+# Dependensi yang harus diinstal oleh Vercel
+/vendor
+/node_modules
+
+# File environment lokal
+.env
+
+# Aset yang di-build 
+/public/build
+/public/hot
+
+# Direktori Storage Laravel
+# Vercel memiliki filesystem sementara, ini tidak boleh di-upload
+/storage/app
+/storage/framework
+/storage/logs
+
+# Symlink public storage
+/public/storage
+
+# File database lokal
+*.sqlite
+/database/*.sqlite
+
+# Pengaturan IDE dan log error
+.vscode
+.idea
+npm-debug.log*
+yarn-error.log*

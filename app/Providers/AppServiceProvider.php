@@ -6,7 +6,8 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Batch; // <-- Pastikan ini ditambahkan
+use App\Models\Batch; 
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -46,6 +47,12 @@ class AppServiceProvider extends ServiceProvider
             // Kirim semua variabel ini ke semua view
             $view->with($stats);
         });
+
+
+        if (config('app.env') === 'production') {
+            URL::forceScheme('https');
+        }
+
         // === AKHIR BLOK ===
     }
 }
