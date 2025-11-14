@@ -298,8 +298,8 @@
             <div class="logo-wrapper">
                 <i class="bi bi-shield-lock"></i>
             </div>
-            <h1>Welcome Back</h1>
-            <p>Course Registration System</p>
+            <h1>Welcome!</h1>
+            <p>PT Timah REE Traceability System</p>
         </div>
         
         @if($errors->any())
