@@ -29,7 +29,7 @@ class DashboardController extends Controller
             return $this->mitraDashboard();
         } elseif ($user->isMitraDownstream()) {
             return $this->downstreamDashboard();
-        } elseif ($user->isGovernment()) {
+        } elseif ($user->isAuditor()) {
             return $this->auditDashboard();
         }
 
@@ -210,7 +210,7 @@ class DashboardController extends Controller
         // KPI Stats
         $stats = [
             'total_batches' => Batch::count(),
-            'active_batches' => Batch::active()->count(),
+            'active_batches' => Batch::whereIn('status', ['active', 'shipped', 'received', 'processed'])->count(),
             'total_partners' => Partner::approved()->count(),
             'total_logs' => BatchLog::count(),
         ];
