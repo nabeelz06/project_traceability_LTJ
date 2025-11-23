@@ -30,8 +30,11 @@
                             <option value="super_admin" {{ request('role') == 'super_admin' ? 'selected' : '' }}>Super Admin</option>
                             <option value="admin" {{ request('role') == 'admin' ? 'selected' : '' }}>Admin</option>
                             <option value="operator" {{ request('role') == 'operator' ? 'selected' : '' }}>Operator</option>
+                            <option value="mitra_upstream" {{ request('role') == 'mitra_upstream' ? 'selected' : '' }}>Mitra Upstream</option>
                             <option value="mitra_middlestream" {{ request('role') == 'mitra_middlestream' ? 'selected' : '' }}>Mitra Middlestream</option>
                             <option value="mitra_downstream" {{ request('role') == 'mitra_downstream' ? 'selected' : '' }}>Mitra Downstream</option>
+                            <option value="end_user" {{ request('role') == 'end_user' ? 'selected' : '' }}>End User</option>
+                            <option value="auditor" {{ request('role') == 'auditor' ? 'selected' : '' }}>Auditor</option>
                             <option value="g_bim" {{ request('role') == 'g_bim' ? 'selected' : '' }}>G:BIM</option>
                             <option value="g_esdm" {{ request('role') == 'g_esdm' ? 'selected' : '' }}>G:ESDM</option>
                         </select>
@@ -131,8 +134,85 @@
     </div>
 
     <!-- Pagination -->
+    @if($users->hasPages())
     <div class="mt-3">
-        {{ $users->links() }}
+        {{ $users->appends(request()->query())->links() }}
     </div>
+    @endif
 </div>
 @endsection
+
+@push('styles')
+<style>
+    /* Custom Pagination Styling - Konsisten dengan Design System */
+    .pagination {
+        display: flex;
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        justify-content: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+    
+    .page-item {
+        margin: 0;
+    }
+    
+    .page-link {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 40px;
+        height: 40px;
+        padding: 0.6rem 1rem;
+        text-decoration: none;
+        background: var(--glass);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        border: 1px solid rgba(11,37,69,0.1);
+        color: var(--primary);
+        font-weight: 600;
+        font-size: 0.95rem;
+        border-radius: 10px;
+        transition: all 0.3s ease;
+        font-family: 'Poppins', inherit;
+    }
+    
+    .page-link:hover {
+        background: rgba(13,110,253,0.08);
+        border-color: var(--primary);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(13,110,253,0.15);
+    }
+    
+    .page-item.active .page-link {
+        background: linear-gradient(135deg, #0d6efd 0%, #3aa0ff 100%);
+        color: var(--white);
+        border-color: var(--primary);
+        box-shadow: 0 4px 12px rgba(13,110,253,0.3);
+    }
+    
+    .page-item.disabled .page-link {
+        color: rgba(11,37,69,0.4);
+        background: rgba(11,37,69,0.05);
+        border-color: rgba(11,37,69,0.08);
+        pointer-events: none;
+        opacity: 0.6;
+    }
+
+    /* Responsive untuk mobile */
+    @media (max-width: 576px) {
+        .pagination {
+            gap: 0.25rem;
+        }
+        
+        .page-link {
+            min-width: 36px;
+            height: 36px;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.875rem;
+        }
+    }
+</style>
+@endpush
