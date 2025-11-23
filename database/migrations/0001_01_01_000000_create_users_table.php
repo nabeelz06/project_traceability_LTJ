@@ -7,42 +7,42 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Buat table users dengan kolom lengkap sesuai seeder
+     * Buat table users
      */
     public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('username')->unique()->nullable(); // Username untuk login (opsional)
+            $table->string('username')->unique()->nullable();
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            $table->enum('role', [
-                'super_admin', 
-                'admin', 
-                'operator', 
-                'mitra_middlestream', 
-                'mitra_downstream', 
-                'auditor',  // ← DITAMBAHKAN untuk auditor internal/eksternal
-                'g_bim',    // Government BIM
-                'g_esdm'    // Government ESDM
-            ]);
-            $table->unsignedBigInteger('partner_id')->nullable(); // Untuk mitra
-            $table->string('nomor_pegawai')->nullable(); // Untuk internal PT Timah (admin, operator, auditor)
+            
+            // PERBAIKAN DI SINI:
+            // Ubah dari ENUM menjadi STRING agar bisa menerima 'mitra_upstream'
+            // dan role lain tanpa error database.
+            $table->string('role'); 
+            
+            $table->unsignedBigInteger('partner_id')->nullable();
+            $table->string('nomor_pegawai')->nullable();
             $table->string('phone', 20)->nullable();
             $table->boolean('is_active')->default(true);
-            $table->boolean('enable_2fa')->default(false); // Two-Factor Authentication
+            $table->boolean('enable_2fa')->default(false);
+            
+            // Tambahan kolom agar sinkron dengan seeder sebelumnya
+            // (jika seeder Anda mengisi ini)
+            $table->timestamp('last_login_at')->nullable();
+            $table->string('device_id')->nullable();
+
             $table->rememberToken();
             $table->timestamps();
 
-            // Index untuk pencarian cepat
+            // Index
             $table->index('email');
             $table->index('username');
             $table->index('role');
             $table->index('partner_id');
-            $table->index('is_active');
-            $table->index('nomor_pegawai');
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
