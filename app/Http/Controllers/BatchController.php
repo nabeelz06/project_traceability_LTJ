@@ -3,406 +3,485 @@
 namespace App\Http\Controllers;
 
 use App\Models\Batch;
-use App\Models\BatchLog;
 use App\Models\ProductCode;
 use App\Models\Partner;
-use App\Models\RfidWrite;
-use App\Services\TraceabilityService;
+use App\Models\BatchLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class BatchController extends Controller
 {
-    protected $traceabilityService;
-
-    public function __construct(TraceabilityService $traceabilityService)
-    {
-        $this->traceabilityService = $traceabilityService;
-    }
-    
     /**
-     * Tampilkan daftar batch dengan filter dan pagination
+     * Tampilkan daftar semua batch
      */
     public function index(Request $request)
     {
-        $query = Batch::with(['productCode', 'creator', 'currentPartner', 'parentBatch']);
+        $query = Batch::with(['productCode', 'creator', 'currentPartner']);
 
         // Filter berdasarkan status
-        if ($request->filled('status')) {
+        if ($request->has('status') && $request->status != '') {
             $query->where('status', $request->status);
         }
 
         // Filter berdasarkan product code
-        if ($request->filled('product_code')) {
-            $query->where('product_code', $request->product_code);
+        if ($request->has('product_code_id') && $request->product_code_id != '') {
+            $query->where('product_code_id', $request->product_code_id);
         }
 
-        // Filter berdasarkan partner pemilik
-        if ($request->filled('partner_id')) {
-            $query->where('current_owner_partner_id', $request->partner_id);
-        }
-
-        // Filter berdasarkan tanggal
-        if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
-        }
-
-        // Search batch code, lot, container
-        if ($request->filled('search')) {
+        // Pencarian
+        if ($request->has('search')) {
             $query->search($request->search);
         }
 
-        $batches = $query->orderBy('created_at', 'desc')->paginate(20);
-        $productcodes = ProductCode::orderBy('code')->get();
-        $partners = Partner::approved()->orderBy('name')->get();
+        // Parent batch only atau semua
+        if ($request->has('type') && $request->type == 'parent') {
+            $query->parentOnly();
+        }
 
-        return view('batches.index', compact('batches', 'productcodes', 'partners'));
+        $batches = $query->orderBy('created_at', 'desc')->paginate(20);
+        
+        // FIX: Gunakan lowercase untuk konsistensi dengan view
+        $productcodes = ProductCode::where('stage', 'Mitra Pemurnian LTJ')->get();
+
+        return view('batches.index', compact('batches', 'productcodes'));
     }
 
     /**
-     * Tampilkan form buat batch induk baru
+     * Form create batch baru
      */
     public function create()
     {
-        // Hanya admin dan super admin yang bisa buat batch induk
+        // Hanya Super Admin dan Admin PT Timah yang bisa create parent batch
         if (!Auth::user()->canCreateParentBatch()) {
             abort(403, 'Anda tidak memiliki akses untuk membuat batch induk.');
         }
 
-        $productCodes = ProductCode::where('stage', 'RAW')->orderBy('code')->get();
-        $partners = Partner::approved()->orderBy('name')->get();
+        $productCodes = ProductCode::where('stage', 'Mitra Pemurnian LTJ')
+            ->orderBy('code')
+            ->get();
 
-        return view('batches.create', compact('productCodes', 'partners'));
+        return view('batches.create', compact('productCodes'));
     }
 
     /**
-     * Simpan batch induk baru
+     * Store batch baru ke database dengan evidence upload
      */
     public function store(Request $request)
     {
+        // Validasi permission
         if (!Auth::user()->canCreateParentBatch()) {
-            abort(403);
+            abort(403, 'Anda tidak memiliki akses untuk membuat batch induk.');
         }
 
+        // Validasi input
         $validated = $request->validate([
-            'product_code' => 'required|exists:product_codes,code',
-            'container_code' => 'required|string|unique:batches,container_code',
-            'initial_weight' => 'required|numeric|min:0.1',
+            'product_code_id' => 'required|exists:product_codes,id',
+            'initial_weight' => 'required|numeric|min:0.01',
             'weight_unit' => 'required|in:kg,ton',
-            'current_location' => 'required|string|max:255',
-            'notes' => 'nullable|string|max:1000',
+            'tonase' => 'nullable|numeric|min:0',
+            'konsentrat_persen' => 'required|numeric|min:0|max:100',
+            'container_code' => 'nullable|string|max:50',
+            'origin_location' => 'required|string|max:255',
+            'keterangan' => 'nullable|string|max:1000',
+            
+            // 5 Unsur LTJ
+            'nd_content' => 'nullable|numeric|min:0|max:100',
+            'y_content' => 'nullable|numeric|min:0|max:100',
+            'ce_content' => 'nullable|numeric|min:0|max:100',
+            'la_content' => 'nullable|numeric|min:0|max:100',
+            'pr_content' => 'nullable|numeric|min:0|max:100',
+            
+            // Massa LTJ
+            'massa_ltj_kg' => 'nullable|numeric|min:0',
+            
+            // GPS Coordinates
+            'current_latitude' => 'nullable|numeric|between:-90,90',
+            'current_longitude' => 'nullable|numeric|between:-180,180',
+            'current_location_name' => 'nullable|string|max:255',
+            
+            // Evidence Files
+            'evidence_photos.*' => 'nullable|image|max:5120', // 5MB per foto
+            'evidence_videos.*' => 'nullable|mimes:mp4,avi,mov|max:51200', // 50MB per video
+            'evidence_documents.*' => 'nullable|mimes:pdf,doc,docx,xlsx|max:10240', // 10MB per dokumen
+        ], [
+            'product_code_id.required' => 'Product code wajib dipilih.',
+            'initial_weight.required' => 'Tonase/berat wajib diisi.',
+            'initial_weight.min' => 'Tonase/berat minimal 0.01.',
+            'weight_unit.required' => 'Unit wajib dipilih.',
+            'konsentrat_persen.required' => 'Konsentrat wajib diisi.',
+            'konsentrat_persen.max' => 'Konsentrat maksimal 100%.',
+            'origin_location.required' => 'Lokasi asal wajib diisi.',
+            'evidence_photos.*.image' => 'File harus berupa gambar.',
+            'evidence_photos.*.max' => 'Ukuran foto maksimal 5MB.',
+            'evidence_videos.*.mimes' => 'Format video harus mp4, avi, atau mov.',
+            'evidence_videos.*.max' => 'Ukuran video maksimal 50MB.',
+            'evidence_documents.*.mimes' => 'Format dokumen harus pdf, doc, docx, atau xlsx.',
+            'evidence_documents.*.max' => 'Ukuran dokumen maksimal 10MB.',
         ]);
 
-        DB::beginTransaction();
+        // Validasi tambahan: Total 5 unsur tidak boleh > 100%
+        $totalUnsur = ($validated['nd_content'] ?? 0) + 
+                     ($validated['y_content'] ?? 0) + 
+                     ($validated['ce_content'] ?? 0) + 
+                     ($validated['la_content'] ?? 0) + 
+                     ($validated['pr_content'] ?? 0);
+
+        if ($totalUnsur > 100) {
+            return back()
+                ->withErrors(['nd_content' => 'Total kandungan 5 unsur LTJ tidak boleh melebihi 100%.'])
+                ->withInput();
+        }
+
         try {
-            // Buat batch baru (batch_code auto-generated di Model)
+            DB::beginTransaction();
+
+            // Konversi tonase untuk initial_weight dan current_weight
+            $weightInKg = $validated['weight_unit'] == 'ton' 
+                ? $validated['initial_weight'] * 1000 
+                : $validated['initial_weight'];
+
+            // Hitung tonase dalam ton
+            $tonaseInTon = $validated['weight_unit'] == 'ton' 
+                ? $validated['initial_weight'] 
+                : $validated['initial_weight'] / 1000;
+
+            // Auto-calculate massa_ltj_kg jika tidak diisi manual
+            $massaLtjKg = $validated['massa_ltj_kg'] ?? 
+                         Batch::calculateMassaLtj($tonaseInTon, $validated['konsentrat_persen']);
+
+            // Generate container code jika kosong
+            $containerCode = $validated['container_code'];
+            if (empty($containerCode)) {
+                $containerCode = 'K-TMH-' . str_pad(Batch::count() + 1, 4, '0', STR_PAD_LEFT);
+            }
+
+            // Handle Evidence File Uploads
+            $evidencePhotos = [];
+            $evidenceVideos = [];
+            $evidenceDocuments = [];
+
+            // Upload photos
+            if ($request->hasFile('evidence_photos')) {
+                foreach ($request->file('evidence_photos') as $photo) {
+                    $path = $photo->store('evidence/photos', 'public');
+                    $evidencePhotos[] = [
+                        'url' => Storage::url($path),
+                        'filename' => $photo->getClientOriginalName(),
+                        'size' => $photo->getSize(),
+                        'uploaded_at' => now()->toDateTimeString(),
+                    ];
+                }
+            }
+
+            // Upload videos
+            if ($request->hasFile('evidence_videos')) {
+                foreach ($request->file('evidence_videos') as $video) {
+                    $path = $video->store('evidence/videos', 'public');
+                    $evidenceVideos[] = [
+                        'url' => Storage::url($path),
+                        'filename' => $video->getClientOriginalName(),
+                        'size' => $video->getSize(),
+                        'uploaded_at' => now()->toDateTimeString(),
+                    ];
+                }
+            }
+
+            // Upload documents
+            if ($request->hasFile('evidence_documents')) {
+                foreach ($request->file('evidence_documents') as $document) {
+                    $path = $document->store('evidence/documents', 'public');
+                    $evidenceDocuments[] = [
+                        'url' => Storage::url($path),
+                        'filename' => $document->getClientOriginalName(),
+                        'size' => $document->getSize(),
+                        'uploaded_at' => now()->toDateTimeString(),
+                    ];
+                }
+            }
+
+            // Buat batch baru
             $batch = Batch::create([
-                'product_code' => $validated['product_code'],
-                'container_code' => $validated['container_code'],
-                'initial_weight' => $validated['initial_weight'],
-                'current_weight' => $validated['initial_weight'],
-                'weight_unit' => $validated['weight_unit'],
-                'current_location' => $validated['current_location'],
+                'product_code_id' => $validated['product_code_id'],
+                'initial_weight' => $weightInKg,
+                'current_weight' => $weightInKg,
+                'weight_unit' => 'kg',
+                'tonase' => $tonaseInTon,
+                'konsentrat_persen' => $validated['konsentrat_persen'],
+                'massa_ltj_kg' => $massaLtjKg,
+                'container_code' => $containerCode,
+                'origin_location' => $validated['origin_location'],
+                'current_location' => $validated['origin_location'],
+                'keterangan' => $validated['keterangan'],
+                
+                // 5 Unsur LTJ
+                'nd_content' => $validated['nd_content'] ?? null,
+                'y_content' => $validated['y_content'] ?? null,
+                'ce_content' => $validated['ce_content'] ?? null,
+                'la_content' => $validated['la_content'] ?? null,
+                'pr_content' => $validated['pr_content'] ?? null,
+                
+                // GPS Coordinates
+                'current_latitude' => $validated['current_latitude'] ?? null,
+                'current_longitude' => $validated['current_longitude'] ?? null,
+                'current_location_name' => $validated['current_location_name'] ?? $validated['origin_location'],
+                'last_gps_update' => ($validated['current_latitude'] && $validated['current_longitude']) ? now() : null,
+                
+                // Evidence
+                'evidence_photos' => !empty($evidencePhotos) ? $evidencePhotos : null,
+                'evidence_videos' => !empty($evidenceVideos) ? $evidenceVideos : null,
+                'evidence_documents' => !empty($evidenceDocuments) ? $evidenceDocuments : null,
+                
+                // Status & ownership
                 'status' => 'created',
-                'created_by_user_id' => Auth::id(),
+                'created_by' => Auth::id(),
+                'current_owner_partner_id' => Auth::user()->partner_id,
                 'is_ready' => false,
             ]);
 
-            // Log pembuatan batch
+            // Buat log aktivitas
             BatchLog::create([
                 'batch_id' => $batch->id,
-                'action' => 'created',
-                'new_status' => 'created',
+                'action' => 'BATCH_CREATED',
                 'actor_user_id' => Auth::id(),
-                'notes' => $validated['notes'] ?? 'Batch induk dibuat',
+                'notes' => 'Batch induk dibuat oleh ' . Auth::user()->name,
+                'metadata' => json_encode([
+                    'batch_code' => $batch->batch_code,
+                    'tonase' => $tonaseInTon . ' ton',
+                    'konsentrat' => $validated['konsentrat_persen'] . '%',
+                    'massa_ltj' => $massaLtjKg . ' kg',
+                    'evidence_count' => count($evidencePhotos) + count($evidenceVideos) + count($evidenceDocuments),
+                    'has_gps' => $batch->hasGpsCoordinates(),
+                ]),
             ]);
 
             DB::commit();
-            return redirect()->route('batches.show', $batch)
-                ->with('success', 'Batch ' . $batch->batch_code . ' berhasil dibuat.');
+
+            return redirect()
+                ->route('batches.show', $batch->id)
+                ->with('success', 'Batch berhasil dibuat dengan kode: ' . $batch->batch_code);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->withInput()
-                ->with('error', 'Gagal membuat batch: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Tampilkan detail batch dengan traceability tree
-     */
-    public function show(Batch $batch)
-    {
-        $batch->load(['productCode', 'creator', 'currentPartner', 'parentBatch', 'childBatches', 'logs.actor', 'documents', 'rfidWrites']);
-        
-        // Build traceability tree
-        $tree = $this->traceabilityService->buildFullTree($batch);
-        
-        return view('batches.show', compact('batch', 'tree'));
-    }
-
-    /**
-     * Tampilkan form edit batch
-     */
-    public function edit(Batch $batch)
-    {
-        if (!$batch->canBeEdited()) {
-            return back()->with('error', 'Batch tidak dapat diedit pada status: ' . $batch->getStatusLabel());
-        }
-
-        $productCodes = ProductCode::orderBy('code')->get();
-        $partners = Partner::approved()->orderBy('name')->get();
-
-        return view('batches.edit', compact('batch', 'productCodes', 'partners'));
-    }
-
-    /**
-     * Update data batch
-     */
-    public function update(Request $request, Batch $batch)
-    {
-        if (!$batch->canBeEdited()) {
-            return back()->with('error', 'Batch tidak dapat diedit.');
-        }
-
-        $validated = $request->validate([
-            'container_code' => 'required|string|unique:batches,container_code,' . $batch->id,
-            'current_weight' => 'required|numeric|min:0',
-            'weight_unit' => 'required|in:kg,ton',
-            'current_location' => 'required|string|max:255',
-            'notes' => 'nullable|string|max:1000',
-        ]);
-
-        DB::beginTransaction();
-        try {
-            $batch->update($validated);
-
-            BatchLog::create([
-                'batch_id' => $batch->id,
-                'action' => 'updated',
-                'actor_user_id' => Auth::id(),
-                'notes' => $validated['notes'] ?? 'Data batch diperbarui',
-            ]);
-
-            DB::commit();
-            return redirect()->route('batches.show', $batch)
-                ->with('success', 'Batch berhasil diperbarui.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->withInput()
-                ->with('error', 'Gagal memperbarui batch: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Mark batch sebagai ready to ship
-     */
-    public function markReady(Batch $batch)
-    {
-        if (!in_array($batch->status, ['created', 'received'])) {
-            return back()->with('error', 'Batch tidak dapat ditandai siap kirim.');
-        }
-
-        DB::beginTransaction();
-        try {
-            $oldStatus = $batch->status;
             
-            $batch->update([
-                'status' => 'ready_to_ship',
-                'is_ready' => true,
-            ]);
-
-            BatchLog::create([
-                'batch_id' => $batch->id,
-                'action' => 'status_updated',
-                'previous_status' => $oldStatus,
-                'new_status' => 'ready_to_ship',
-                'actor_user_id' => Auth::id(),
-                'notes' => 'Batch ditandai siap untuk dikirim',
-            ]);
-
-            DB::commit();
-            return back()->with('success', 'Batch berhasil ditandai siap kirim.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->with('error', 'Gagal: ' . $e->getMessage());
+            // Hapus file yang sudah diupload jika terjadi error
+            foreach ($evidencePhotos as $photo) {
+                Storage::disk('public')->delete(str_replace('/storage/', '', $photo['url']));
+            }
+            foreach ($evidenceVideos as $video) {
+                Storage::disk('public')->delete(str_replace('/storage/', '', $video['url']));
+            }
+            foreach ($evidenceDocuments as $doc) {
+                Storage::disk('public')->delete(str_replace('/storage/', '', $doc['url']));
+            }
+            
+            return back()
+                ->withErrors(['error' => 'Gagal membuat batch: ' . $e->getMessage()])
+                ->withInput();
         }
     }
 
     /**
-     * Write RFID tag untuk batch
+     * Tampilkan detail batch
      */
-    public function writeRfid(Request $request, Batch $batch)
+    public function show($id)
     {
+        $batch = Batch::with([
+            'productCode', 
+            'creator', 
+            'currentPartner', 
+            'parentBatch',
+            'childBatches.productCode',
+            'logs.actor',
+            'documents',
+            'shipments'
+        ])->findOrFail($id);
+
+        return view('batches.show', compact('batch'));
+    }
+
+    /**
+     * Form edit batch
+     */
+    public function edit($id)
+    {
+        $batch = Batch::findOrFail($id);
+
+        // Cek permission
+        if (!$batch->canBeEdited()) {
+            return redirect()
+                ->route('batches.show', $batch->id)
+                ->with('error', 'Batch dengan status "' . $batch->getStatusLabel() . '" tidak dapat diedit.');
+        }
+
+        $productCodes = ProductCode::where('stage', 'Mitra Pemurnian LTJ')
+            ->orderBy('code')
+            ->get();
+
+        return view('batches.edit', compact('batch', 'productCodes'));
+    }
+
+    /**
+     * Update batch
+     */
+    public function update(Request $request, $id)
+    {
+        $batch = Batch::findOrFail($id);
+
+        // Cek permission
+        if (!$batch->canBeEdited()) {
+            return redirect()
+                ->route('batches.show', $batch->id)
+                ->with('error', 'Batch dengan status "' . $batch->getStatusLabel() . '" tidak dapat diedit.');
+        }
+
+        // Validasi sama seperti store
         $validated = $request->validate([
-            'device_id' => 'required|string',
-            'tag_uid' => 'required|string|unique:batches,rfid_tag_uid',
+            'product_code_id' => 'required|exists:product_codes,id',
+            'initial_weight' => 'required|numeric|min:0.01',
+            'weight_unit' => 'required|in:kg,ton',
+            'tonase' => 'nullable|numeric|min:0',
+            'konsentrat_persen' => 'required|numeric|min:0|max:100',
+            'container_code' => 'nullable|string|max:50',
+            'origin_location' => 'required|string|max:255',
+            'keterangan' => 'nullable|string|max:1000',
+            'nd_content' => 'nullable|numeric|min:0|max:100',
+            'y_content' => 'nullable|numeric|min:0|max:100',
+            'ce_content' => 'nullable|numeric|min:0|max:100',
+            'la_content' => 'nullable|numeric|min:0|max:100',
+            'pr_content' => 'nullable|numeric|min:0|max:100',
+            'massa_ltj_kg' => 'nullable|numeric|min:0',
+            'current_latitude' => 'nullable|numeric|between:-90,90',
+            'current_longitude' => 'nullable|numeric|between:-180,180',
+            'current_location_name' => 'nullable|string|max:255',
         ]);
 
-        DB::beginTransaction();
+        // Validasi total unsur
+        $totalUnsur = ($validated['nd_content'] ?? 0) + 
+                     ($validated['y_content'] ?? 0) + 
+                     ($validated['ce_content'] ?? 0) + 
+                     ($validated['la_content'] ?? 0) + 
+                     ($validated['pr_content'] ?? 0);
+
+        if ($totalUnsur > 100) {
+            return back()
+                ->withErrors(['nd_content' => 'Total kandungan 5 unsur LTJ tidak boleh melebihi 100%.'])
+                ->withInput();
+        }
+
         try {
-            // Generate payload untuk RFID
-            $payload = [
-                'batch_code' => $batch->batch_code,
-                'lot_number' => $batch->lot_number,
-                'product_code' => $batch->product_code,
-                'container_code' => $batch->container_code,
-                'issued_at' => now()->toIso8601String(),
-            ];
+            DB::beginTransaction();
 
-            $signature = hash_hmac('sha256', json_encode($payload), config('app.key'));
+            // Konversi weight
+            $weightInKg = $validated['weight_unit'] == 'ton' 
+                ? $validated['initial_weight'] * 1000 
+                : $validated['initial_weight'];
 
-            // Simpan record RFID write
-            RfidWrite::create([
-                'batch_id' => $batch->id,
-                'tag_uid' => $validated['tag_uid'],
-                'device_id' => $validated['device_id'],
-                'user_id' => Auth::id(),
-                'payload' => json_encode($payload),
-                'signature' => $signature,
-                'is_success' => true,
+            $tonaseInTon = $validated['weight_unit'] == 'ton' 
+                ? $validated['initial_weight'] 
+                : $validated['initial_weight'] / 1000;
+
+            // Recalculate massa_ltj_kg
+            $massaLtjKg = $validated['massa_ltj_kg'] ?? 
+                         Batch::calculateMassaLtj($tonaseInTon, $validated['konsentrat_persen']);
+
+            // Update batch
+            $batch->update([
+                'product_code_id' => $validated['product_code_id'],
+                'initial_weight' => $weightInKg,
+                'current_weight' => $weightInKg,
+                'tonase' => $tonaseInTon,
+                'konsentrat_persen' => $validated['konsentrat_persen'],
+                'massa_ltj_kg' => $massaLtjKg,
+                'container_code' => $validated['container_code'],
+                'origin_location' => $validated['origin_location'],
+                'keterangan' => $validated['keterangan'],
+                'nd_content' => $validated['nd_content'] ?? null,
+                'y_content' => $validated['y_content'] ?? null,
+                'ce_content' => $validated['ce_content'] ?? null,
+                'la_content' => $validated['la_content'] ?? null,
+                'pr_content' => $validated['pr_content'] ?? null,
+                'current_latitude' => $validated['current_latitude'] ?? $batch->current_latitude,
+                'current_longitude' => $validated['current_longitude'] ?? $batch->current_longitude,
+                'current_location_name' => $validated['current_location_name'] ?? $batch->current_location_name,
+                'last_gps_update' => ($validated['current_latitude'] && $validated['current_longitude']) ? now() : $batch->last_gps_update,
             ]);
-
-            // Update batch dengan RFID tag
-            $batch->update(['rfid_tag_uid' => $validated['tag_uid']]);
 
             // Log aktivitas
             BatchLog::create([
                 'batch_id' => $batch->id,
-                'action' => 'rfid_written',
+                'action' => 'BATCH_UPDATED',
                 'actor_user_id' => Auth::id(),
-                'notes' => 'RFID tag ditulis: ' . $validated['tag_uid'],
+                'notes' => 'Batch diupdate oleh ' . Auth::user()->name,
             ]);
 
             DB::commit();
 
-            return response()->json([
-                'success' => true,
-                'payload' => $payload,
-                'signature' => $signature,
-                'message' => 'RFID tag berhasil ditulis',
-            ]);
+            return redirect()
+                ->route('batches.show', $batch->id)
+                ->with('success', 'Batch berhasil diupdate.');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Verifikasi RFID tag
-     */
-    public function verifyRfid(Request $request, Batch $batch)
-    {
-        $validated = $request->validate([
-            'tag_uid' => 'required|string',
-            'read_payload' => 'required|string',
-        ]);
-
-        $rfidWrite = RfidWrite::where('batch_id', $batch->id)
-            ->where('tag_uid', $validated['tag_uid'])
-            ->orderBy('created_at', 'desc')
-            ->first();
-
-        if (!$rfidWrite) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tag tidak ditemukan untuk batch ini',
-            ], 404);
-        }
-
-        $isValid = ($rfidWrite->payload === $validated['read_payload']);
-
-        if ($isValid) {
-            $rfidWrite->update(['verified' => true]);
-        }
-
-        return response()->json([
-            'success' => true,
-            'verified' => $isValid,
-            'message' => $isValid ? 'Tag terverifikasi' : 'Payload tidak cocok',
-        ]);
-    }
-
-    /**
-     * Koreksi data batch (Super Admin only)
-     */
-    public function correct(Request $request, Batch $batch)
-    {
-        if (!Auth::user()->canCorrectBatch()) {
-            abort(403);
-        }
-
-        $validated = $request->validate([
-            'status' => 'required|in:created,ready_to_ship,shipped,received,processed,delivered,quarantine',
-            'correction_reason' => 'required|string|max:1000',
-        ]);
-
-        DB::beginTransaction();
-        try {
-            $oldStatus = $batch->status;
             
-            $batch->update(['status' => $validated['status']]);
-
-            BatchLog::create([
-                'batch_id' => $batch->id,
-                'action' => 'corrected',
-                'previous_status' => $oldStatus,
-                'new_status' => $validated['status'],
-                'actor_user_id' => Auth::id(),
-                'notes' => 'Koreksi manual: ' . $validated['correction_reason'],
-            ]);
-
-            DB::commit();
-            return back()->with('success', 'Batch berhasil dikoreksi.');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->with('error', 'Gagal: ' . $e->getMessage());
+            return back()
+                ->withErrors(['error' => 'Gagal update batch: ' . $e->getMessage()])
+                ->withInput();
         }
     }
 
     /**
-     * Force delete batch (Super Admin only, hanya jika tidak punya child)
+     * Hapus batch
      */
-    public function forceDelete(Batch $batch)
+    public function destroy($id)
     {
-        if (!Auth::user()->isSuperAdmin()) {
-            abort(403);
-        }
+        $batch = Batch::findOrFail($id);
 
         if (!$batch->canBeDeleted()) {
-            return back()->with('error', 'Batch tidak dapat dihapus karena sudah memiliki child batch atau sudah diproses.');
+            return redirect()
+                ->route('batches.index')
+                ->with('error', 'Batch tidak dapat dihapus karena sudah memiliki child batch atau status tidak sesuai.');
         }
 
-        DB::beginTransaction();
         try {
-            $batchCode = $batch->batch_code;
-            
-            // Hapus semua relasi
+            DB::beginTransaction();
+
+            // Hapus evidence files dari storage
+            if ($batch->evidence_photos) {
+                foreach ($batch->evidence_photos as $photo) {
+                    Storage::disk('public')->delete(str_replace('/storage/', '', $photo['url']));
+                }
+            }
+            if ($batch->evidence_videos) {
+                foreach ($batch->evidence_videos as $video) {
+                    Storage::disk('public')->delete(str_replace('/storage/', '', $video['url']));
+                }
+            }
+            if ($batch->evidence_documents) {
+                foreach ($batch->evidence_documents as $doc) {
+                    Storage::disk('public')->delete(str_replace('/storage/', '', $doc['url']));
+                }
+            }
+
+            // Hapus logs terkait
             $batch->logs()->delete();
-            $batch->documents()->delete();
-            $batch->rfidWrites()->delete();
-            
+
             // Hapus batch
             $batch->delete();
 
             DB::commit();
-            return redirect()->route('batches.index')
-                ->with('success', 'Batch ' . $batchCode . ' berhasil dihapus.');
+
+            return redirect()
+                ->route('batches.index')
+                ->with('success', 'Batch berhasil dihapus.');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Gagal menghapus batch: ' . $e->getMessage());
+            
+            return redirect()
+                ->route('batches.index')
+                ->with('error', 'Gagal menghapus batch: ' . $e->getMessage());
         }
     }
 }

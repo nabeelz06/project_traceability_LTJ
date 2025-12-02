@@ -14,12 +14,19 @@ return new class extends Migration
         Schema::create('partners', function (Blueprint $table) {
             $table->id();
             $table->string('name')->unique();
-            $table->string('type'); // middlestream, downstream
-            $table->string('pic_name');
-            $table->string('pic_phone');
-            $table->text('address');
-            $table->json('allowed_product_codes'); // Menyimpan array
-            $table->string('status')->default('pending'); // approved
+            $table->string('type'); // upstream, middlestream, downstream, end_user
+            $table->string('pic_name')->nullable();
+            $table->string('pic_phone')->nullable();
+            
+            // PERBAIKAN 1: Tambahkan kolom pic_email
+            $table->string('pic_email')->nullable(); 
+            
+            $table->text('address')->nullable();
+            
+            // PERBAIKAN 2: Jadikan nullable karena di seeder ada partner yg tidak punya kode ini
+            $table->json('allowed_product_codes')->nullable(); 
+            
+            $table->string('status')->default('pending'); // approved, pending
             $table->timestamps();
         });
     }

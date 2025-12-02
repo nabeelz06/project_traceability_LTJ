@@ -14,7 +14,6 @@ class DashboardController extends Controller
 {
     /**
      * Dashboard utama - routing otomatis berdasarkan role
-     * User akses /dashboard → otomatis diarahkan ke dashboard sesuai rolenya
      */
     public function index(Request $request)
     {
@@ -29,11 +28,10 @@ class DashboardController extends Controller
             return $this->mitraDashboard();
         } elseif ($user->isMitraDownstream()) {
             return $this->downstreamDashboard();
-        } elseif ($user->isAuditor()) {
+        } elseif ($user->isGovernment()) {
             return $this->auditDashboard();
         }
 
-        // Fallback jika role tidak dikenali
         return view('dashboard');
     }
 
@@ -45,12 +43,12 @@ class DashboardController extends Controller
         // KPI Stats
         $stats = [
             'total_batches' => Batch::count(),
-            'active_batches' => Batch::active()->count(),
-            'batches_in_transit' => Batch::where('status', 'shipped')->count(),
+            'active_batches' => Batch::whereIn('status', ['ready', 'in_transit', 'checked_in', 'processing'])->count(),
+            'batches_in_transit' => Batch::where('status', 'in_transit')->count(),
             'batches_delivered' => Batch::where('status', 'delivered')->count(),
         ];
 
-        // Notifikasi pending approvals
+        // Alerts
         $alerts = [];
         $pendingPartners = Partner::where('status', 'pending')->count();
         if (Auth::user()->isSuperAdmin() && $pendingPartners > 0) {
@@ -61,43 +59,120 @@ class DashboardController extends Controller
             ];
         }
 
-        // Chart volume batch (7 hari terakhir)
-        $volumeChart = Batch::select(
-                DB::raw('DATE(created_at) as date'), 
-                DB::raw('count(*) as total')
-            )
-            ->where('created_at', '>=', now()->subDays(7))
-            ->groupBy('date')
-            ->orderBy('date', 'asc')
-            ->get();
-
-        // Batch terbaru
-        $recentBatches = Batch::with(['productCode', 'creator', 'currentPartner'])
+        // Aktivitas Terbaru dengan data lengkap (20 recent activities) + 5 unsur LTJ
+        $recentActivities = BatchLog::with(['batch.productCode', 'actor'])
             ->orderBy('created_at', 'desc')
-            ->take(10)
-            ->get();
+            ->take(20)
+            ->get()
+            ->map(function($log) {
+                $batch = $log->batch;
+                return [
+                    'batch_code' => $batch->batch_code ?? '-',
+                    'timestamp' => $log->created_at,
+                    'aktivitas' => $log->getActionLabel(),
+                    'user' => $log->actor->name ?? 'System',
+                    'tonase' => $batch->tonase ?? 0,
+                    'konsentrat' => $batch->konsentrat_persen ?? 0,
+                    'keterangan' => $batch->keterangan ?? $log->notes ?? '-',
+                    'massa_ltj' => $batch->massa_ltj_kg ?? 0,
+                    
+                    // 5 Unsur LTJ
+                    'nd_content' => $batch->nd_content ?? null,
+                    'y_content' => $batch->y_content ?? null,
+                    'ce_content' => $batch->ce_content ?? null,
+                    'la_content' => $batch->la_content ?? null,
+                    'pr_content' => $batch->pr_content ?? null,
+                    
+                    'batch_id' => $batch->id ?? null,
+                ];
+            });
 
-        // Aktivitas terbaru
-        $recentActivities = BatchLog::with(['batch', 'actor'])
-            ->orderBy('created_at', 'desc')
-            ->take(15)
-            ->get();
+        // Status per Batch
+        $statusPerBatch = Batch::select('status', DB::raw('count(*) as total'))
+            ->groupBy('status')
+            ->get()
+            ->map(function($item) {
+                return [
+                    'status' => $item->status,
+                    'label' => $this->getStatusLabel($item->status),
+                    'total' => $item->total,
+                    'color' => $this->getStatusColor($item->status),
+                ];
+            });
 
-        // Statistik mitra
-        $partnerStats = Partner::withCount('batches')
+        // Volume Chart (7 hari terakhir)
+        $volumeChart = collect();
+        for ($i = 6; $i >= 0; $i--) {
+            $date = now()->subDays($i);
+            $count = Batch::whereDate('created_at', $date->toDateString())->count();
+            $volumeChart->push([
+                'date' => $date->format('d M'),
+                'total' => $count,
+            ]);
+        }
+
+        // Partner Performance (Top 5)
+        $partnerStats = Partner::withCount(['batches' => function($query) {
+                $query->where('status', 'delivered');
+            }])
             ->where('status', 'approved')
             ->orderBy('batches_count', 'desc')
             ->take(5)
             ->get();
 
+        // Recent Batches
+        $recentBatches = Batch::with('productCode')
+            ->orderBy('created_at', 'desc')
+            ->take(6)
+            ->get();
+
         return view('dashboard.admin', compact(
-            'stats', 
-            'alerts', 
-            'volumeChart', 
-            'recentBatches', 
+            'stats',
+            'alerts',
             'recentActivities',
-            'partnerStats'
+            'statusPerBatch',
+            'volumeChart',
+            'partnerStats',
+            'recentBatches'
         ));
+    }
+
+    /**
+     * Get status label in Indonesian
+     */
+    private function getStatusLabel($status)
+    {
+        $labels = [
+            'pending' => 'Menunggu',
+            'ready' => 'Siap',
+            'in_transit' => 'Dalam Pengiriman',
+            'checked_in' => 'Check-In',
+            'processing' => 'Diproses',
+            'delivered' => 'Terkirim',
+            'cancelled' => 'Dibatalkan',
+            'quarantine' => 'Karantina',
+        ];
+
+        return $labels[$status] ?? ucfirst($status);
+    }
+
+    /**
+     * Get status color
+     */
+    private function getStatusColor($status)
+    {
+        $colors = [
+            'pending' => '#ffc107',
+            'ready' => '#0dcaf0',
+            'in_transit' => '#6eb5c0',
+            'checked_in' => '#5a7a95',
+            'processing' => '#95a5b5',
+            'delivered' => '#7ba888',
+            'cancelled' => '#dc3545',
+            'quarantine' => '#fd7e14',
+        ];
+
+        return $colors[$status] ?? '#6c757d';
     }
 
     /**
@@ -108,43 +183,34 @@ class DashboardController extends Controller
         $user = Auth::user();
         $partnerId = $user->partner_id;
 
-        // KPI Stats
         $stats = [
-            'incoming_batches' => Batch::where('status', 'shipped')
-                ->whereHas('logs', function($q) use ($partnerId) {
-                    // Batch yang sedang dalam pengiriman menuju mitra ini
-                })
+            'incoming_batches' => Batch::where('status', 'in_transit')->count(),
+            'received_batches' => Batch::where('current_partner_id', $partnerId)
+                ->where('status', 'checked_in')
                 ->count(),
-            'received_batches' => Batch::where('current_owner_partner_id', $partnerId)
-                ->where('status', 'received')
+            'processed_batches' => Batch::where('current_partner_id', $partnerId)
+                ->where('status', 'processing')
                 ->count(),
-            'processed_batches' => Batch::where('current_owner_partner_id', $partnerId)
-                ->where('status', 'processed')
-                ->count(),
-            'child_batches' => Batch::where('created_by_user_id', $user->id)
+            'child_batches' => Batch::where('created_by', $user->id)
                 ->whereNotNull('parent_batch_id')
                 ->count(),
         ];
 
-        // Batch yang perlu di-checkin (shipped status)
-        $needCheckin = Batch::where('status', 'shipped')
+        $needCheckin = Batch::where('status', 'in_transit')
             ->with(['productCode', 'creator'])
             ->orderBy('updated_at', 'desc')
             ->take(10)
             ->get();
 
-        // Batch yang bisa diproses (sudah diterima, belum diproses)
-        $readyToProcess = Batch::where('current_owner_partner_id', $partnerId)
-            ->where('status', 'received')
-            ->whereNull('parent_batch_id') // Hanya parent batch
+        $readyToProcess = Batch::where('current_partner_id', $partnerId)
+            ->where('status', 'checked_in')
             ->with(['productCode'])
             ->orderBy('created_at', 'desc')
             ->take(10)
             ->get();
 
-        // Aktivitas terbaru mitra ini
         $recentActivities = BatchLog::whereHas('batch', function($q) use ($partnerId) {
-                $q->where('current_owner_partner_id', $partnerId);
+                $q->where('current_partner_id', $partnerId);
             })
             ->orWhere('actor_user_id', $user->id)
             ->with(['batch', 'actor'])
@@ -168,27 +234,23 @@ class DashboardController extends Controller
         $user = Auth::user();
         $partnerId = $user->partner_id;
 
-        // KPI Stats
         $stats = [
-            'incoming_shipments' => Batch::where('status', 'shipped')
-                ->count(),
-            'received_batches' => Batch::where('current_owner_partner_id', $partnerId)
+            'incoming_shipments' => Batch::where('status', 'in_transit')->count(),
+            'received_batches' => Batch::where('current_partner_id', $partnerId)
                 ->where('status', 'delivered')
                 ->count(),
-            'total_weight' => Batch::where('current_owner_partner_id', $partnerId)
+            'total_weight' => Batch::where('current_partner_id', $partnerId)
                 ->where('status', 'delivered')
                 ->sum('current_weight'),
         ];
 
-        // Batch yang perlu di-checkin
-        $needCheckin = Batch::where('status', 'shipped')
+        $needCheckin = Batch::where('status', 'in_transit')
             ->with(['productCode', 'parentBatch'])
             ->orderBy('updated_at', 'desc')
             ->take(10)
             ->get();
 
-        // Riwayat penerimaan
-        $receivedBatches = Batch::where('current_owner_partner_id', $partnerId)
+        $receivedBatches = Batch::where('current_partner_id', $partnerId)
             ->where('status', 'delivered')
             ->with(['productCode', 'parentBatch'])
             ->orderBy('updated_at', 'desc')
@@ -203,22 +265,19 @@ class DashboardController extends Controller
     }
 
     /**
-     * Dashboard untuk Government (G:BIM & G:ESDM)
+     * Dashboard untuk Auditor (Government)
      */
     public function auditDashboard()
     {
-        // KPI Stats
         $stats = [
             'total_batches' => Batch::count(),
-            'active_batches' => Batch::whereIn('status', ['active', 'shipped', 'received', 'processed'])->count(),
-            'total_partners' => Partner::approved()->count(),
+            'active_batches' => Batch::whereIn('status', ['ready', 'in_transit', 'checked_in', 'processing'])->count(),
+            'total_partners' => Partner::where('status', 'approved')->count(),
             'total_logs' => BatchLog::count(),
         ];
 
-        // Deteksi anomali
         $anomalies = [];
         
-        // Batch dengan status quarantine
         $quarantinedBatches = Batch::where('status', 'quarantine')->count();
         if ($quarantinedBatches > 0) {
             $anomalies[] = [
@@ -228,20 +287,6 @@ class DashboardController extends Controller
             ];
         }
 
-        // Aktivitas mencurigakan - terlalu banyak koreksi manual
-        $suspiciousCorrections = BatchLog::where('action', 'corrected')
-            ->where('created_at', '>=', now()->subDays(7))
-            ->count();
-
-        if ($suspiciousCorrections > 5) {
-            $anomalies[] = [
-                'type' => 'warning',
-                'message' => "{$suspiciousCorrections} koreksi manual terdeteksi dalam 7 hari terakhir",
-                'link' => route('audit.logs.batch', ['action' => 'corrected'])
-            ];
-        }
-
-        // Batch dengan umur terlalu lama (> 60 hari masih aktif)
         $oldBatches = Batch::where('status', '!=', 'delivered')
             ->where('created_at', '<=', now()->subDays(60))
             ->count();
@@ -254,7 +299,6 @@ class DashboardController extends Controller
             ];
         }
 
-        // Statistik aktivitas per hari (30 hari terakhir)
         $dailyActivity = BatchLog::select(
                 DB::raw('DATE(created_at) as date'),
                 DB::raw('count(*) as total')
@@ -264,7 +308,6 @@ class DashboardController extends Controller
             ->orderBy('date', 'asc')
             ->get();
 
-        // Log terbaru (semua aktivitas)
         $recentLogs = BatchLog::with(['batch', 'actor'])
             ->orderBy('created_at', 'desc')
             ->take(20)

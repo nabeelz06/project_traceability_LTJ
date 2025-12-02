@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - {{ config('app.name') }}</title>
+    <title>Forgot Password - {{ config('app.name') }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
@@ -16,7 +16,7 @@
         
         body {
             font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #3e5c74 0%, #2d4454 100%);
+            background: linear-gradient(135deg, #1B8057 0%, #146644 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -25,7 +25,6 @@
             overflow: hidden;
         }
 
-        /* Animated background circles */
         body::before,
         body::after {
             content: '';
@@ -40,7 +39,6 @@
             height: 400px;
             top: -150px;
             right: -100px;
-            animation-delay: 0s;
         }
 
         body::after {
@@ -56,10 +54,9 @@
             50% { transform: translateY(-30px) scale(1.05); }
         }
         
-        .login-container {
+        .forgot-container {
             background: rgba(255,255,255,0.98);
             backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
             padding: 3rem;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
@@ -81,38 +78,28 @@
             }
         }
         
-        .login-header {
+        .forgot-header {
             text-align: center;
-            margin-bottom: 2.5rem;
+            margin-bottom: 2rem;
         }
         
-        .login-header img {
-            height: 80px;
+        .forgot-header img {
+            height: 70px;
             margin-bottom: 1.5rem;
-            filter: drop-shadow(0 4px 12px rgba(62,92,116,0.2));
-            animation: logoFloat 3s ease-in-out infinite;
-        }
-
-        @keyframes logoFloat {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-8px); }
+            filter: drop-shadow(0 4px 12px rgba(27,128,87,0.2));
         }
         
-        .login-header h1 {
-            background: linear-gradient(135deg, #3e5c74 0%, #2d4454 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            font-size: 1.85rem;
+        .forgot-header h1 {
+            color: #1B8057;
+            font-size: 1.75rem;
             margin-bottom: 0.5rem;
             font-weight: 700;
-            letter-spacing: -0.5px;
         }
         
-        .login-header p {
+        .forgot-header p {
             color: rgba(44,62,80,0.7);
-            font-size: 0.95rem;
-            font-weight: 400;
+            font-size: 0.9rem;
+            line-height: 1.6;
         }
         
         .form-group {
@@ -130,7 +117,7 @@
         .form-control {
             width: 100%;
             padding: 0.9rem 1.2rem;
-            border: 2px solid rgba(62,92,116,0.15);
+            border: 2px solid rgba(27,128,87,0.15);
             border-radius: 12px;
             font-size: 1rem;
             transition: all 0.3s ease;
@@ -140,40 +127,15 @@
         
         .form-control:focus {
             outline: none;
-            border-color: #3e5c74;
-            box-shadow: 0 0 0 4px rgba(62,92,116,0.1);
+            border-color: #1B8057;
+            box-shadow: 0 0 0 4px rgba(27,128,87,0.1);
             background: white;
         }
-
-        .form-control::placeholder {
-            color: rgba(44,62,80,0.4);
-        }
         
-        .form-check {
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .form-check input[type="checkbox"] {
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-            accent-color: #3e5c74;
-        }
-
-        .form-check label {
-            margin: 0;
-            color: #2c3e50;
-            font-weight: 500;
-            cursor: pointer;
-        }
-        
-        .btn-login {
+        .btn-submit {
             width: 100%;
             padding: 1rem;
-            background: linear-gradient(135deg, #3e5c74 0%, #2d4454 100%);
+            background: linear-gradient(135deg, #1B8057 0%, #146644 100%);
             color: white;
             border: none;
             border-radius: 12px;
@@ -182,33 +144,28 @@
             cursor: pointer;
             transition: all 0.3s ease;
             font-family: 'Poppins', inherit;
-            box-shadow: 0 6px 20px rgba(62,92,116,0.3);
+            box-shadow: 0 6px 20px rgba(27,128,87,0.3);
         }
         
-        .btn-login:hover {
+        .btn-submit:hover {
             transform: translateY(-3px);
-            box-shadow: 0 10px 30px rgba(62,92,116,0.4);
-            background: linear-gradient(135deg, #2d4454 0%, #1e2f3d 100%);
-        }
-
-        .btn-login:active {
-            transform: translateY(-1px);
+            box-shadow: 0 10px 30px rgba(27,128,87,0.4);
         }
         
-        .forgot-password {
+        .back-to-login {
             text-align: center;
             margin-top: 1.25rem;
         }
         
-        .forgot-password a {
-            color: #3e5c74;
+        .back-to-login a {
+            color: #1B8057;
             text-decoration: none;
             font-weight: 600;
-            transition: all 0.3s ease;
+            transition: color 0.3s ease;
         }
 
-        .forgot-password a:hover {
-            color: #2d4454;
+        .back-to-login a:hover {
+            color: #146644;
             text-decoration: underline;
         }
         
@@ -218,18 +175,6 @@
             margin-bottom: 1.5rem;
             font-size: 0.9rem;
             font-weight: 500;
-            animation: slideDown 0.4s ease;
-        }
-
-        @keyframes slideDown {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
         }
         
         .alert-danger {
@@ -244,62 +189,37 @@
             border: 2px solid rgba(40,167,69,0.2);
         }
 
-        .alert i {
-            margin-right: 0.5rem;
-        }
-
-        .login-footer {
-            text-align: center;
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 2px solid rgba(62,92,116,0.1);
-        }
-
-        .login-footer p {
-            color: rgba(62,92,116,0.6);
-            font-size: 0.85rem;
-            font-weight: 500;
-        }
-
         @media (max-width: 480px) {
-            .login-container {
+            .forgot-container {
                 padding: 2rem;
                 margin: 1rem;
-            }
-
-            .login-header h1 {
-                font-size: 1.5rem;
-            }
-
-            .login-header img {
-                height: 60px;
             }
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-header">
-            <img src="{{ asset('images/logo-timah.png') }}" alt="PT Timah" onerror="this.style.display='none'">
-            <h1>Welcome!</h1>
-            <p>Sistem Traceability Logam Tanah Jarang</p>
+    <div class="forgot-container">
+        <div class="forgot-header">
+            <img src="{{ asset('images/logo-timah.png') }}" alt="PT Timah">
+            <h1>Forgot Password?</h1>
+            <p>Masukkan email Anda dan kami akan mengirimkan link untuk reset password</p>
         </div>
         
         @if($errors->any())
             <div class="alert alert-danger">
-                <i class="bi bi-exclamation-circle"></i>
+                <i class="bi bi-exclamation-circle me-2"></i>
                 {{ $errors->first() }}
             </div>
         @endif
         
         @if(session('status'))
             <div class="alert alert-success">
-                <i class="bi bi-check-circle"></i>
+                <i class="bi bi-check-circle me-2"></i>
                 {{ session('status') }}
             </div>
         @endif
         
-        <form action="{{ route('login.post') }}" method="POST">
+        <form action="{{ route('password.email') }}" method="POST">
             @csrf
             
             <div class="form-group">
@@ -310,38 +230,18 @@
                        placeholder="your.email@example.com" value="{{ old('email') }}" required autofocus>
             </div>
             
-            <div class="form-group">
-                <label class="form-label" for="password">
-                    <i class="bi bi-lock me-1"></i> Password
-                </label>
-                <input type="password" id="password" name="password" class="form-control" 
-                       placeholder="Enter your password" required>
-            </div>
-            
-            <div class="form-check">
-                <input type="checkbox" id="remember" name="remember" value="1">
-                <label for="remember">Remember me on this device</label>
-            </div>
-            
-            <button type="submit" class="btn-login">
-                <i class="bi bi-box-arrow-in-right me-2"></i>
-                Sign In
+            <button type="submit" class="btn-submit">
+                <i class="bi bi-send me-2"></i>
+                Send Reset Link
             </button>
             
-            <div class="forgot-password">
-                <a href="{{ route('password.request') }}">
-                    <i class="bi bi-key me-1"></i>
-                    Forgot your password?
+            <div class="back-to-login">
+                <a href="{{ route('login') }}">
+                    <i class="bi bi-arrow-left me-1"></i>
+                    Back to Login
                 </a>
             </div>
         </form>
-
-        <div class="login-footer">
-            <p>
-                <i class="bi bi-c-circle me-1"></i>
-                Copyright © PT Timah {{ date('Y') }}
-            </p>
-        </div>
     </div>
 </body>
 </html>

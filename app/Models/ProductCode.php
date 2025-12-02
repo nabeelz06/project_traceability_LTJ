@@ -8,25 +8,48 @@ use Illuminate\Database\Eloquent\Model;
 class ProductCode extends Model
 {
     use HasFactory;
-    
-    protected $guarded = [];
-    
-    protected $primaryKey = 'code';
-    public $incrementing = false;
-    protected $keyType = 'string';
 
+    protected $fillable = [
+        'code',
+        'description',
+        'stage',
+        'specifications',
+    ];
+
+    protected $casts = [
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+    ];
+
+    // Relationship: ProductCode has many Batches
+    // Foreign key di tabel batches: product_code_id
+    // Owner key di tabel product_codes: id
     public function batches()
     {
-        return $this->hasMany(Batch::class, 'product_code', 'code');
+        return $this->hasMany(Batch::class, 'product_code_id', 'id');
     }
 
+    // Helper: Get stage label
     public function getStageLabel()
     {
-        $labels = [
-            'RAW' => 'Bahan Mentah',
-            'MID' => 'Hasil Pengolahan',
-            'FINAL' => 'Produk Akhir',
+        $stages = [
+            'RAW' => 'Raw Material (Upstream)',
+            'MID' => 'Mitra Pemurnian LTJ (Midstream)',
+            'FINAL' => 'Produk Akhir (Downstream)',
         ];
-        return $labels[$this->stage] ?? $this->stage;
+
+        return $stages[$this->stage] ?? $this->stage;
+    }
+
+    // Helper: Check if stage is midstream
+    public function isMidstream()
+    {
+        return $this->stage === 'MID';
+    }
+
+    // Accessor: Full code with description
+    public function getFullNameAttribute()
+    {
+        return "{$this->code} - {$this->description}";
     }
 }

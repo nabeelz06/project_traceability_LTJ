@@ -1,145 +1,112 @@
 <?php
 
-/**
- * File: database/seeders/DatabaseSeeder.php
- * Seeder untuk data awal sistem - Updated dengan data perusahaan aktual
- */
-
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\User;
 use App\Models\Partner;
 use App\Models\ProductCode;
+use App\Models\Batch;
+use App\Models\BatchLog;
 use Illuminate\Support\Facades\Hash;
+use Carbon\Carbon;
 
 class DatabaseSeeder extends Seeder
 {
     /**
-     * Seed the application's database.
+     * Seed database sistem traceability LTJ PT Timah
      */
     public function run(): void
     {
-        // Seed Product Codes
+        $this->command->info('🚀 Starting database seeding for LTJ Traceability System...');
+        $this->command->info('📅 Date: ' . now()->format('d F Y H:i:s'));
+        $this->command->info('');
+
+        // 1. Seed Product Codes
         $this->seedProductCodes();
 
-        // Seed Partners
+        // 2. Seed Partners
         $partners = $this->seedPartners();
 
-        // Seed Users
-        $this->seedUsers($partners);
+        // 3. Seed Users
+        $users = $this->seedUsers($partners);
 
-        $this->command->info('Database seeded successfully!');
+        // 4. Seed 7 Batches dengan ~50 activity logs
+        $this->seed7BatchesWithDetailedFlow($users, $partners);
+
+        $this->command->info('');
+        $this->command->info('✅ Database seeded successfully!');
+        $this->printSummary();
     }
 
     /**
-     * Seed product codes berdasarkan rancangan
+     * Seed Product Codes
      */
     private function seedProductCodes()
     {
+        $this->command->info('📦 Seeding product codes...');
+
         $productCodes = [
-            // Upstream (PT Timah)
+            // UPSTREAM - Raw Material dari PT Timah
             [
                 'code' => 'TIM-MON-RAW',
-                'stage' => 'TIM',
+                'stage' => 'Upstream',
                 'material' => 'MON',
                 'spec' => 'RAW',
-                'description' => 'Mineral LTJ Mentah (Monasit)',
-                'category' => 'Raw Material'
+                'description' => 'Monasit Mentah dari Mineral Ikutan Timah',
+                'category' => 'Raw Material',
             ],
 
-            // Middlestream (Processed)
+            // MIDSTREAM - Konsentrat
             [
                 'code' => 'MID-MON-CON',
-                'stage' => 'MID',
+                'stage' => 'Midstream',
                 'material' => 'MON',
                 'spec' => 'CON',
                 'description' => 'Konsentrat Monasit Terolah',
-                'category' => 'Concentrated'
+                'category' => 'Concentrated',
             ],
+
+            // MIDSTREAM - Purified Oxides
             [
                 'code' => 'MID-ND-OXI99',
-                'stage' => 'MID',
+                'stage' => 'Midstream',
                 'material' => 'ND',
                 'spec' => 'OXI99',
-                'description' => 'Neodymium Oksida 99%',
-                'category' => 'Purified Oxide'
-            ],
-            [
-                'code' => 'MID-PR-OXI99',
-                'stage' => 'MID',
-                'material' => 'PR',
-                'spec' => 'OXI99',
-                'description' => 'Praseodymium Oksida 99%',
-                'category' => 'Purified Oxide'
+                'description' => 'Neodymium (Nd) Oksida 99% - untuk magnet permanen',
+                'category' => 'Purified Oxide',
             ],
             [
                 'code' => 'MID-CE-OXI99',
-                'stage' => 'MID',
+                'stage' => 'Midstream',
                 'material' => 'CE',
                 'spec' => 'OXI99',
-                'description' => 'Cerium Oksida 99%',
-                'category' => 'Purified Oxide'
+                'description' => 'Cerium (Ce) Oksida 99% - untuk katalis & polishing',
+                'category' => 'Purified Oxide',
             ],
             [
                 'code' => 'MID-Y-OXI99',
-                'stage' => 'MID',
+                'stage' => 'Midstream',
                 'material' => 'Y',
                 'spec' => 'OXI99',
-                'description' => 'Yttrium Oksida 99%',
-                'category' => 'Purified Oxide'
+                'description' => 'Yttrium (Y) Oksida 99% - untuk phosphor & keramik',
+                'category' => 'Purified Oxide',
             ],
             [
-                'code' => 'MID-LE-OXI99',
-                'stage' => 'MID',
-                'material' => 'LE',
+                'code' => 'MID-PR-OXI99',
+                'stage' => 'Midstream',
+                'material' => 'PR',
                 'spec' => 'OXI99',
-                'description' => 'Oksida LTJ Lainnya (La, Sm, dll)',
-                'category' => 'Purified Oxide'
+                'description' => 'Praseodymium (Pr) Oksida 99% - untuk magnet & keramik',
+                'category' => 'Purified Oxide',
             ],
             [
-                'code' => 'MID-MX-REO',
-                'stage' => 'MID',
-                'material' => 'MX',
-                'spec' => 'REO',
-                'description' => 'Mixed Rare Earth Oxide',
-                'category' => 'Mixed Oxide'
-            ],
-
-            // High purity variants
-            [
-                'code' => 'MID-ND-OXI999',
-                'stage' => 'MID',
-                'material' => 'ND',
-                'spec' => 'OXI999',
-                'description' => 'Neodymium Oksida 99.9%+',
-                'category' => 'High Purity Oxide'
-            ],
-            [
-                'code' => 'MID-PR-OXI999',
-                'stage' => 'MID',
-                'material' => 'PR',
-                'spec' => 'OXI999',
-                'description' => 'Praseodymium Oksida 99.9%+',
-                'category' => 'High Purity Oxide'
-            ],
-
-            // Metal forms
-            [
-                'code' => 'MID-ND-MET',
-                'stage' => 'MID',
-                'material' => 'ND',
-                'spec' => 'MET',
-                'description' => 'Neodymium Metal',
-                'category' => 'Pure Metal'
-            ],
-            [
-                'code' => 'MID-PR-MET',
-                'stage' => 'MID',
-                'material' => 'PR',
-                'spec' => 'MET',
-                'description' => 'Praseodymium Metal',
-                'category' => 'Pure Metal'
+                'code' => 'MID-LA-OXI99',
+                'stage' => 'Midstream',
+                'material' => 'LA',
+                'spec' => 'OXI99',
+                'description' => 'Lanthanum (La) Oksida 99% - untuk katalis',
+                'category' => 'Purified Oxide',
             ],
         ];
 
@@ -150,28 +117,27 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        $this->command->info('Product codes seeded: ' . count($productCodes));
+        $this->command->info('   ✓ Product codes: 7 kode produk');
     }
 
     /**
-     * Seed partners berdasarkan data aktual
+     * Seed Partners
      */
     private function seedPartners()
     {
+        $this->command->info('🏢 Seeding partners...');
+        
         $partners = [];
 
-        // ==========================================
-        // UPSTREAM PARTNERS - Tambang Timah
-        // ==========================================
-        
+        // UPSTREAM
         $partners['timah'] = Partner::updateOrCreate(
             ['name' => 'PT Timah Tbk'],
             [
                 'type' => 'upstream',
-                'pic_name' => 'Manager Produksi PT Timah',
-                'pic_phone' => '021-12345001',
-                'address' => 'Jakarta',
-                'allowed_product_codes' => ['TIM-MON-RAW'],
+                'pic_name' => 'Direktur Operasional PT Timah',
+                'pic_phone' => '021-5063800',
+                'address' => 'Jl. Jend. Sudirman Kav. 36, Jakarta Selatan',
+                'allowed_product_codes' => json_encode(['TIM-MON-RAW']),
                 'status' => 'approved',
             ]
         );
@@ -180,10 +146,10 @@ class DatabaseSeeder extends Seeder
             ['name' => 'PT Aneka Tambang Tbk'],
             [
                 'type' => 'upstream',
-                'pic_name' => 'Manager Operasional Antam',
-                'pic_phone' => '021-12345002',
-                'address' => 'Jakarta',
-                'allowed_product_codes' => ['TIM-MON-RAW'],
+                'pic_name' => 'Manager Produksi Antam',
+                'pic_phone' => '021-2924477',
+                'address' => 'Jl. T.B. Simatupang No. 1, Jakarta Selatan',
+                'allowed_product_codes' => json_encode(['TIM-MON-RAW']),
                 'status' => 'approved',
             ]
         );
@@ -193,9 +159,9 @@ class DatabaseSeeder extends Seeder
             [
                 'type' => 'upstream',
                 'pic_name' => 'Direktur Operasional',
-                'pic_phone' => '021-12345003',
+                'pic_phone' => '021-5551234',
                 'address' => 'Jakarta',
-                'allowed_product_codes' => ['TIM-MON-RAW'],
+                'allowed_product_codes' => json_encode(['TIM-MON-RAW']),
                 'status' => 'approved',
             ]
         );
@@ -205,138 +171,22 @@ class DatabaseSeeder extends Seeder
             [
                 'type' => 'upstream',
                 'pic_name' => 'Manager Produksi',
-                'pic_phone' => '021-12345004',
+                'pic_phone' => '021-5556789',
                 'address' => 'Jakarta',
-                'allowed_product_codes' => ['TIM-MON-RAW'],
+                'allowed_product_codes' => json_encode(['TIM-MON-RAW']),
                 'status' => 'approved',
             ]
         );
 
-        // ==========================================
-        // MIDDLESTREAM PARTNERS - Pengolahan Monazite
-        // (Catatan: Belum ada di Indonesia, data sebagai contoh/simulasi)
-        // ==========================================
-        
-        $partners['middlestream_processing'] = Partner::updateOrCreate(
-            ['name' => 'PT Pengolahan Monasit Indonesia (Simulasi)'],
-            [
-                'type' => 'middlestream',
-                'pic_name' => 'Budi Santoso',
-                'pic_phone' => '081234567890',
-                'address' => 'Kawasan Industri Cikarang, Bekasi',
-                'allowed_product_codes' => ['TIM-MON-RAW', 'MID-MON-CON'],
-                'status' => 'pending', // Pending karena belum beroperasi
-            ]
-        );
-
-        $partners['refinery'] = Partner::updateOrCreate(
-            ['name' => 'PT Pemurnian LTJ Nusantara (Simulasi)'],
-            [
-                'type' => 'middlestream',
-                'pic_name' => 'Siti Aminah',
-                'pic_phone' => '081234567891',
-                'address' => 'Kawasan Industri Karawang, Jawa Barat',
-                'allowed_product_codes' => [
-                    'MID-MON-CON',
-                    'MID-ND-OXI99',
-                    'MID-PR-OXI99',
-                    'MID-CE-OXI99',
-                    'MID-Y-OXI99',
-                    'MID-LE-OXI99'
-                ],
-                'status' => 'pending', // Pending karena belum beroperasi
-            ]
-        );
-
-        // ==========================================
-        // DOWNSTREAM PARTNERS - Advanced Materials
-        // (Catatan: Belum ada di Indonesia untuk magnet permanen, baterai LTJ, dll)
-        // ==========================================
-        
-        $partners['magnet_indo'] = Partner::updateOrCreate(
-            ['name' => 'PT Industri Magnet Permanen Indonesia (Simulasi)'],
-            [
-                'type' => 'downstream',
-                'pic_name' => 'Ahmad Wijaya',
-                'pic_phone' => '081234567892',
-                'address' => 'Kawasan Industri MM2100, Cibitung',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-PR-OXI99', 'MID-ND-MET'],
-                'status' => 'pending',
-            ]
-        );
-
-        $partners['battery'] = Partner::updateOrCreate(
-            ['name' => 'PT Industri Baterai Advanced (Simulasi)'],
-            [
-                'type' => 'downstream',
-                'pic_name' => 'Dewi Kusuma',
-                'pic_phone' => '081234567893',
-                'address' => 'Kawasan Industri Karawang',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-CE-OXI99'],
-                'status' => 'pending',
-            ]
-        );
-
-        $partners['catalyst'] = Partner::updateOrCreate(
-            ['name' => 'PT Industri Katalis Indonesia (Simulasi)'],
-            [
-                'type' => 'downstream',
-                'pic_name' => 'Rudi Hermawan',
-                'pic_phone' => '081234567894',
-                'address' => 'Kawasan Industri Cilegon',
-                'allowed_product_codes' => ['MID-CE-OXI99', 'MID-LE-OXI99'],
-                'status' => 'pending',
-            ]
-        );
-
-        $partners['phosphor'] = Partner::updateOrCreate(
-            ['name' => 'PT Industri Phosphor Elektronik (Simulasi)'],
-            [
-                'type' => 'downstream',
-                'pic_name' => 'Linda Kusuma',
-                'pic_phone' => '081234567895',
-                'address' => 'Kawasan Industri EJIP, Cikarang',
-                'allowed_product_codes' => ['MID-PR-OXI99', 'MID-Y-OXI99'],
-                'status' => 'pending',
-            ]
-        );
-
-        $partners['fuelcell'] = Partner::updateOrCreate(
-            ['name' => 'PT Industri Fuel Cell Indonesia (Simulasi)'],
-            [
-                'type' => 'downstream',
-                'pic_name' => 'Bambang Suryanto',
-                'pic_phone' => '081234567896',
-                'address' => 'Kawasan Industri Surabaya',
-                'allowed_product_codes' => ['MID-Y-OXI99', 'MID-CE-OXI99'],
-                'status' => 'pending',
-            ]
-        );
-
-        // ==========================================
-        // END USER PARTNERS - Kilang & Petrochemical
-        // ==========================================
-        
+        // END USER
         $partners['pertamina'] = Partner::updateOrCreate(
             ['name' => 'PT Pertamina (Persero)'],
             [
                 'type' => 'end_user',
-                'pic_name' => 'Manager Procurement Pertamina',
-                'pic_phone' => '021-13456001',
-                'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-CE-OXI99', 'MID-LE-OXI99'], // Untuk katalis
-                'status' => 'approved',
-            ]
-        );
-
-        $partners['pertamina_rc'] = Partner::updateOrCreate(
-            ['name' => 'Pertamina Research Center'],
-            [
-                'type' => 'end_user',
-                'pic_name' => 'Kepala Riset',
-                'pic_phone' => '021-13456002',
-                'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-CE-OXI99', 'MID-ND-OXI99'],
+                'pic_name' => 'Manager Procurement',
+                'pic_phone' => '021-3815111',
+                'address' => 'Jl. Medan Merdeka Timur 1A, Jakarta Pusat',
+                'allowed_product_codes' => json_encode(['MID-CE-OXI99']),
                 'status' => 'approved',
             ]
         );
@@ -345,10 +195,10 @@ class DatabaseSeeder extends Seeder
             ['name' => 'PT Rekacipta Inovasi (ITB spin-off)'],
             [
                 'type' => 'end_user',
-                'pic_name' => 'Direktur Riset',
-                'pic_phone' => '022-13456003',
-                'address' => 'Bandung',
-                'allowed_product_codes' => ['MID-CE-OXI99', 'MID-ND-OXI99', 'MID-Y-OXI99'],
+                'pic_name' => 'Direktur Riset & Inovasi',
+                'pic_phone' => '022-2534567',
+                'address' => 'Bandung, Jawa Barat',
+                'allowed_product_codes' => json_encode(['MID-ND-OXI99', 'MID-Y-OXI99']),
                 'status' => 'approved',
             ]
         );
@@ -358,129 +208,57 @@ class DatabaseSeeder extends Seeder
             [
                 'type' => 'end_user',
                 'pic_name' => 'Manager Produksi',
-                'pic_phone' => '021-13456004',
+                'pic_phone' => '0264-123456',
                 'address' => 'Cikampek, Jawa Barat',
-                'allowed_product_codes' => ['MID-CE-OXI99'],
+                'allowed_product_codes' => json_encode(['MID-CE-OXI99']),
                 'status' => 'approved',
             ]
         );
 
-        $partners['chandra_asri'] = Partner::updateOrCreate(
-            ['name' => 'PT Chandra Asri Petrochemical'],
+        $partners['len'] = Partner::updateOrCreate(
+            ['name' => 'PT Len Industri (Defend ID)'],
             [
                 'type' => 'end_user',
-                'pic_name' => 'Procurement Manager',
-                'pic_phone' => '021-13456005',
-                'address' => 'Cilegon, Banten',
-                'allowed_product_codes' => ['MID-CE-OXI99', 'MID-LE-OXI99'],
+                'pic_name' => 'Direktur Operasional',
+                'pic_phone' => '022-6032777',
+                'address' => 'Bandung, Jawa Barat',
+                'allowed_product_codes' => json_encode(['MID-ND-OXI99']),
                 'status' => 'approved',
             ]
         );
 
-        // ==========================================
-        // END USER PARTNERS - Automotive
-        // ==========================================
-        
         $partners['denso'] = Partner::updateOrCreate(
             ['name' => 'Denso Indonesia'],
             [
                 'type' => 'end_user',
                 'pic_name' => 'Purchasing Manager',
-                'pic_phone' => '021-13457001',
+                'pic_phone' => '021-89831000',
                 'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-PR-OXI99', 'MID-CE-OXI99'], // Untuk sensor, katalis
+                'allowed_product_codes' => json_encode(['MID-ND-OXI99']),
                 'status' => 'approved',
             ]
         );
 
-        $partners['astra_otoparts'] = Partner::updateOrCreate(
+        $partners['astra'] = Partner::updateOrCreate(
             ['name' => 'PT Astra Otoparts Tbk'],
             [
                 'type' => 'end_user',
                 'pic_name' => 'Direktur Procurement',
-                'pic_phone' => '021-13457002',
+                'pic_phone' => '021-6519555',
                 'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-CE-OXI99'],
+                'allowed_product_codes' => json_encode(['MID-ND-OXI99']),
                 'status' => 'approved',
             ]
         );
 
-        $partners['ngk_busi'] = Partner::updateOrCreate(
+        $partners['ngk'] = Partner::updateOrCreate(
             ['name' => 'NGK Busi Indonesia'],
             [
                 'type' => 'end_user',
                 'pic_name' => 'Production Manager',
-                'pic_phone' => '021-13457003',
+                'pic_phone' => '021-5904567',
                 'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-Y-OXI99', 'MID-CE-OXI99'],
-                'status' => 'approved',
-            ]
-        );
-
-        // ==========================================
-        // END USER PARTNERS - Glass & Optical
-        // ==========================================
-        
-        $partners['kenertec'] = Partner::updateOrCreate(
-            ['name' => 'PT Kenertec Power System'],
-            [
-                'type' => 'end_user',
-                'pic_name' => 'Engineering Manager',
-                'pic_phone' => '021-13458001',
-                'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-Y-OXI99', 'MID-ND-OXI99'],
-                'status' => 'approved',
-            ]
-        );
-
-        $partners['pln'] = Partner::updateOrCreate(
-            ['name' => 'PT PLN (Persero)'],
-            [
-                'type' => 'end_user',
-                'pic_name' => 'Manager Procurement',
-                'pic_phone' => '021-13458002',
-                'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-Y-OXI99', 'MID-ND-OXI99'],
-                'status' => 'approved',
-            ]
-        );
-
-        $partners['len_industri'] = Partner::updateOrCreate(
-            ['name' => 'PT Len Industri (Defend ID)'],
-            [
-                'type' => 'end_user',
-                'pic_name' => 'Direktur Operasional',
-                'pic_phone' => '022-13458003',
-                'address' => 'Bandung',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-Y-OXI99', 'MID-PR-OXI99'],
-                'status' => 'approved',
-            ]
-        );
-
-        $partners['siemens'] = Partner::updateOrCreate(
-            ['name' => 'PT Siemens Indonesia'],
-            [
-                'type' => 'end_user',
-                'pic_name' => 'Procurement Director',
-                'pic_phone' => '021-13458004',
-                'address' => 'Jakarta',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-Y-OXI99'],
-                'status' => 'approved',
-            ]
-        );
-
-        // ==========================================
-        // END USER PARTNERS - Aerospace & Defense
-        // ==========================================
-        
-        $partners['dirgantara'] = Partner::updateOrCreate(
-            ['name' => 'PT Dirgantara Indonesia (PTDI)'],
-            [
-                'type' => 'end_user',
-                'pic_name' => 'VP Procurement',
-                'pic_phone' => '022-13459001',
-                'address' => 'Bandung',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-PR-OXI99', 'MID-Y-OXI99', 'MID-CE-OXI99'],
+                'allowed_product_codes' => json_encode(['MID-Y-OXI99']),
                 'status' => 'approved',
             ]
         );
@@ -490,242 +268,91 @@ class DatabaseSeeder extends Seeder
             [
                 'type' => 'end_user',
                 'pic_name' => 'Direktur Produksi',
-                'pic_phone' => '022-13459002',
-                'address' => 'Bandung',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-PR-OXI99', 'MID-Y-OXI99'],
+                'pic_phone' => '022-7304112',
+                'address' => 'Bandung, Jawa Barat',
+                'allowed_product_codes' => json_encode(['MID-ND-OXI99']),
                 'status' => 'approved',
             ]
         );
 
-        $partners['pal'] = Partner::updateOrCreate(
-            ['name' => 'PT PAL Indonesia'],
+        $partners['dirgantara'] = Partner::updateOrCreate(
+            ['name' => 'PT Dirgantara Indonesia (PTDI)'],
             [
                 'type' => 'end_user',
-                'pic_name' => 'Direktur Teknik',
-                'pic_phone' => '031-13459003',
-                'address' => 'Surabaya',
-                'allowed_product_codes' => ['MID-ND-OXI99', 'MID-Y-OXI99', 'MID-CE-OXI99'],
+                'pic_name' => 'VP Procurement',
+                'pic_phone' => '022-6034111',
+                'address' => 'Bandung, Jawa Barat',
+                'allowed_product_codes' => json_encode(['MID-ND-OXI99']),
                 'status' => 'approved',
             ]
         );
 
-        $this->command->info('Partners seeded: ' . count($partners));
+        $partners['siemens'] = Partner::updateOrCreate(
+            ['name' => 'PT Siemens Indonesia (Energy Solutions)'],
+            [
+                'type' => 'end_user',
+                'pic_name' => 'Procurement Director',
+                'pic_phone' => '021-57951888',
+                'address' => 'Jakarta',
+                'allowed_product_codes' => json_encode(['MID-Y-OXI99']),
+                'status' => 'approved',
+            ]
+        );
+
+        $this->command->info('   ✓ Partners: ' . count($partners) . ' companies');
 
         return $partners;
     }
 
     /**
-     * Seed users untuk berbagai partners
+     * Seed Users
      */
     private function seedUsers($partners)
     {
-        // ==========================================
-        // SUPER ADMIN & ADMIN PT TIMAH
-        // ==========================================
+        $this->command->info('👥 Seeding users...');
         
-        User::updateOrCreate(
+        $users = [];
+
+        $users['superadmin'] = User::updateOrCreate(
             ['email' => 'superadmin@timah.com'],
             [
                 'name' => 'Super Administrator',
                 'username' => 'superadmin',
                 'password' => Hash::make('password'),
                 'role' => 'super_admin',
-                'nomor_pegawai' => 'TIM-SA-001',
+                'partner_id' => null,
                 'phone' => '081234560001',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        User::updateOrCreate(
+        $users['admin'] = User::updateOrCreate(
             ['email' => 'admin@timah.com'],
             [
-                'name' => 'Admin Operasional',
-                'username' => 'admin.ops',
+                'name' => 'Admin Operasional PT Timah',
+                'username' => 'admin',
                 'password' => Hash::make('password'),
                 'role' => 'admin',
-                'nomor_pegawai' => 'TIM-ADM-001',
+                'partner_id' => null,
                 'phone' => '081234560002',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        User::updateOrCreate(
-            ['email' => 'admin.warehouse@timah.com'],
+        $users['operator_timah'] = User::updateOrCreate(
+            ['email' => 'operator@timah.com'],
             [
-                'name' => 'Admin Gudang',
-                'username' => 'admin.warehouse',
-                'password' => Hash::make('password'),
-                'role' => 'admin',
-                'nomor_pegawai' => 'TIM-ADM-002',
-                'phone' => '081234560003',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        // ==========================================
-        // OPERATOR PT TIMAH
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'operator1@timah.com'],
-            [
-                'name' => 'Operator Lapangan 1',
-                'username' => 'operator1',
+                'name' => 'Operator Lapangan PT Timah',
+                'username' => 'operator.timah',
                 'password' => Hash::make('password'),
                 'role' => 'operator',
-                'nomor_pegawai' => 'TIM-OPR-001',
+                'partner_id' => null,
                 'phone' => '081234560010',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        User::updateOrCreate(
-            ['email' => 'operator2@timah.com'],
-            [
-                'name' => 'Operator Lapangan 2',
-                'username' => 'operator2',
-                'password' => Hash::make('password'),
-                'role' => 'operator',
-                'nomor_pegawai' => 'TIM-OPR-002',
-                'phone' => '081234560011',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        // ==========================================
-        // UPSTREAM USERS
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'user@antam.com'],
-            [
-                'name' => 'User PT Antam',
-                'username' => 'user.antam',
-                'password' => Hash::make('password'),
-                'role' => 'mitra_upstream',
-                'partner_id' => $partners['antam']->id,
-                'phone' => '081234560020',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'user@mitrastania.com'],
-            [
-                'name' => 'User PT Mitra Stania Prima',
-                'username' => 'user.stania',
-                'password' => Hash::make('password'),
-                'role' => 'mitra_upstream',
-                'partner_id' => $partners['mitra_stania']->id,
-                'phone' => '081234560021',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        // ==========================================
-        // MIDDLESTREAM USERS (Simulasi)
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'mitra.processing@partner.com'],
-            [
-                'name' => 'Admin Pengolahan Monasit',
-                'username' => 'mitra.processing',
-                'password' => Hash::make('password'),
-                'role' => 'mitra_middlestream',
-                'partner_id' => $partners['middlestream_processing']->id,
-                'phone' => '081234560030',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'mitra.refinery@partner.com'],
-            [
-                'name' => 'Admin Pemurnian LTJ',
-                'username' => 'mitra.refinery',
-                'password' => Hash::make('password'),
-                'role' => 'mitra_middlestream',
-                'partner_id' => $partners['refinery']->id,
-                'phone' => '081234560031',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        // ==========================================
-        // DOWNSTREAM USERS (Simulasi)
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'downstream.magnet@partner.com'],
-            [
-                'name' => 'Admin Industri Magnet',
-                'username' => 'down.magnet',
-                'password' => Hash::make('password'),
-                'role' => 'mitra_downstream',
-                'partner_id' => $partners['magnet_indo']->id,
-                'phone' => '081234560040',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'downstream.battery@partner.com'],
-            [
-                'name' => 'Admin Industri Baterai',
-                'username' => 'down.battery',
-                'password' => Hash::make('password'),
-                'role' => 'mitra_downstream',
-                'partner_id' => $partners['battery']->id,
-                'phone' => '081234560041',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'downstream.phosphor@partner.com'],
-            [
-                'name' => 'Admin Industri Phosphor',
-                'username' => 'down.phosphor',
-                'password' => Hash::make('password'),
-                'role' => 'mitra_downstream',
-                'partner_id' => $partners['phosphor']->id,
-                'phone' => '081234560042',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        // ==========================================
-        // END USER - Petrochemical
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'user@pertamina.com'],
-            [
-                'name' => 'User PT Pertamina',
-                'username' => 'user.pertamina',
-                'password' => Hash::make('password'),
-                'role' => 'end_user',
-                'partner_id' => $partners['pertamina']->id,
-                'phone' => '081234560050',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
+        $users['user_rekacipta'] = User::updateOrCreate(
             ['email' => 'user@rekacipta.com'],
             [
                 'name' => 'User PT Rekacipta Inovasi',
@@ -733,137 +360,38 @@ class DatabaseSeeder extends Seeder
                 'password' => Hash::make('password'),
                 'role' => 'end_user',
                 'partner_id' => $partners['rekacipta']->id,
-                'phone' => '081234560051',
+                'phone' => '081234560050',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        User::updateOrCreate(
-            ['email' => 'user@chandrаasri.com'],
-            [
-                'name' => 'User PT Chandra Asri Petrochemical',
-                'username' => 'user.chandrаasri',
-                'password' => Hash::make('password'),
-                'role' => 'end_user',
-                'partner_id' => $partners['chandra_asri']->id,
-                'phone' => '081234560052',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        // ==========================================
-        // END USER - Automotive
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'user@denso.co.id'],
-            [
-                'name' => 'User Denso Indonesia',
-                'username' => 'user.denso',
-                'password' => Hash::make('password'),
-                'role' => 'end_user',
-                'partner_id' => $partners['denso']->id,
-                'phone' => '081234560060',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'user@astra-otoparts.com'],
-            [
-                'name' => 'User PT Astra Otoparts',
-                'username' => 'user.astra',
-                'password' => Hash::make('password'),
-                'role' => 'end_user',
-                'partner_id' => $partners['astra_otoparts']->id,
-                'phone' => '081234560061',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
-            ['email' => 'user@ngkbusi.co.id'],
-            [
-                'name' => 'User NGK Busi Indonesia',
-                'username' => 'user.ngk',
-                'password' => Hash::make('password'),
-                'role' => 'end_user',
-                'partner_id' => $partners['ngk_busi']->id,
-                'phone' => '081234560062',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        // ==========================================
-        // END USER - Glass & Optical / Energy
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'user@pln.co.id'],
-            [
-                'name' => 'User PT PLN',
-                'username' => 'user.pln',
-                'password' => Hash::make('password'),
-                'role' => 'end_user',
-                'partner_id' => $partners['pln']->id,
-                'phone' => '081234560070',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
+        $users['user_len'] = User::updateOrCreate(
             ['email' => 'user@len.co.id'],
             [
                 'name' => 'User PT Len Industri',
                 'username' => 'user.len',
                 'password' => Hash::make('password'),
                 'role' => 'end_user',
-                'partner_id' => $partners['len_industri']->id,
-                'phone' => '081234560071',
+                'partner_id' => $partners['len']->id,
+                'phone' => '081234560051',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        User::updateOrCreate(
-            ['email' => 'user@siemens.com'],
+        $users['user_pupuk'] = User::updateOrCreate(
+            ['email' => 'user@pupukkujang.com'],
             [
-                'name' => 'User PT Siemens Indonesia',
-                'username' => 'user.siemens',
+                'name' => 'User PT Pupuk Kujang',
+                'username' => 'user.pupuk',
                 'password' => Hash::make('password'),
                 'role' => 'end_user',
-                'partner_id' => $partners['siemens']->id,
-                'phone' => '081234560072',
+                'partner_id' => $partners['pupuk_kujang']->id,
+                'phone' => '081234560052',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        // ==========================================
-        // END USER - Aerospace & Defense
-        // ==========================================
-        
-        User::updateOrCreate(
-            ['email' => 'user@indonesian-aerospace.com'],
-            [
-                'name' => 'User PT Dirgantara Indonesia',
-                'username' => 'user.ptdi',
-                'password' => Hash::make('password'),
-                'role' => 'end_user',
-                'partner_id' => $partners['dirgantara']->id,
-                'phone' => '081234560080',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
-
-        User::updateOrCreate(
+        $users['user_pindad'] = User::updateOrCreate(
             ['email' => 'user@pindad.com'],
             [
                 'name' => 'User PT Pindad',
@@ -871,105 +399,380 @@ class DatabaseSeeder extends Seeder
                 'password' => Hash::make('password'),
                 'role' => 'end_user',
                 'partner_id' => $partners['pindad']->id,
-                'phone' => '081234560081',
+                'phone' => '081234560053',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        User::updateOrCreate(
-            ['email' => 'user@pal.co.id'],
+        $users['user_dirgantara'] = User::updateOrCreate(
+            ['email' => 'user@indonesian-aerospace.com'],
             [
-                'name' => 'User PT PAL Indonesia',
-                'username' => 'user.pal',
+                'name' => 'User PT Dirgantara Indonesia',
+                'username' => 'user.ptdi',
                 'password' => Hash::make('password'),
                 'role' => 'end_user',
-                'partner_id' => $partners['pal']->id,
-                'phone' => '081234560082',
+                'partner_id' => $partners['dirgantara']->id,
+                'phone' => '081234560054',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        // ==========================================
-        // AUDITOR / REGULATOR
-        // ==========================================
-        
-        User::updateOrCreate(
+        $users['user_denso'] = User::updateOrCreate(
+            ['email' => 'user@denso.co.id'],
+            [
+                'name' => 'User Denso Indonesia',
+                'username' => 'user.denso',
+                'password' => Hash::make('password'),
+                'role' => 'end_user',
+                'partner_id' => $partners['denso']->id,
+                'phone' => '081234560055',
+                'is_active' => true,
+            ]
+        );
+
+        $users['user_astra'] = User::updateOrCreate(
+            ['email' => 'user@astraotoparts.com'],
+            [
+                'name' => 'User PT Astra Otoparts',
+                'username' => 'user.astra',
+                'password' => Hash::make('password'),
+                'role' => 'end_user',
+                'partner_id' => $partners['astra']->id,
+                'phone' => '081234560056',
+                'is_active' => true,
+            ]
+        );
+
+        $users['user_ngk'] = User::updateOrCreate(
+            ['email' => 'user@ngkbusi.co.id'],
+            [
+                'name' => 'User NGK Busi Indonesia',
+                'username' => 'user.ngk',
+                'password' => Hash::make('password'),
+                'role' => 'end_user',
+                'partner_id' => $partners['ngk']->id,
+                'phone' => '081234560057',
+                'is_active' => true,
+            ]
+        );
+
+        $users['user_siemens'] = User::updateOrCreate(
+            ['email' => 'user@siemens.com'],
+            [
+                'name' => 'User PT Siemens Indonesia',
+                'username' => 'user.siemens',
+                'password' => Hash::make('password'),
+                'role' => 'end_user',
+                'partner_id' => $partners['siemens']->id,
+                'phone' => '081234560058',
+                'is_active' => true,
+            ]
+        );
+
+        $users['auditor'] = User::updateOrCreate(
             ['email' => 'auditor@timah.com'],
             [
-                'name' => 'Regulator Internal',
+                'name' => 'Auditor Internal PT Timah',
                 'username' => 'auditor',
                 'password' => Hash::make('password'),
                 'role' => 'auditor',
-                'nomor_pegawai' => 'TIM-AUD-001',
+                'partner_id' => null,
                 'phone' => '081234560090',
                 'is_active' => true,
-                'enable_2fa' => false,
             ]
         );
 
-        User::updateOrCreate(
-            ['email' => 'auditor.ext@kemenristekdikti.go.id'],
-            [
-                'name' => 'Auditor Kemenristekdikti',
-                'username' => 'auditor.external',
-                'password' => Hash::make('password'),
-                'role' => 'auditor',
-                'phone' => '081234560091',
-                'is_active' => true,
-                'enable_2fa' => false,
-            ]
-        );
+        $this->command->info('   ✓ Users: ' . count($users) . ' users');
 
-        $this->command->info('Users seeded successfully!');
+        return $users;
+    }
+
+    /**
+     * Seed 7 Batches dengan detailed flow
+     */
+    private function seed7BatchesWithDetailedFlow($users, $partners)
+    {
+        $this->command->info('📦 Seeding 7 batches with detailed flow...');
+
+        // Base timestamp
+        $baseDate = Carbon::create(2025, 11, 20, 8, 0, 0);
+
+        // Array untuk activities
+        $allActivities = [];
+
+        // ======================================
+        // BATCH 1: Flow Lengkap
+        // ======================================
+        $batch1 = Batch::create([
+            'batch_code' => 'TIM-MON-20251120-001',
+            'lot_number' => 'L-MON-20251120-001-A',
+            
+            // PERBAIKAN DISINI: Ganti 'product_code' menjadi 'product_code_id'
+            'product_code_id' => 1, // Mengacu pada ID TIM-MON-RAW
+            
+            'status' => 'delivered',
+            'initial_weight' => 20000,
+            'current_weight' => 2400,
+            'weight_unit' => 'kg',
+            'tonase' => 20.00,
+            'konsentrat_persen' => 15.00,
+            'massa_ltj_kg' => 3000,
+            'nd_content' => 40.00, 'y_content' => 30.00, 'ce_content' => 15.00, 'la_content' => 10.00, 'pr_content' => 5.00,
+            'origin_location' => 'PT Timah Bangka',
+            'current_location' => 'PT Dirgantara Indonesia (PTDI)',
+            'container_code' => 'K-TMH-001',
+            'keterangan' => 'Diterima dari PT Timah. Input 3000 kg LTJ',
+            'created_by' => $users['user_rekacipta']->id,
+            'current_owner_partner_id' => $partners['dirgantara']->id,
+            'is_ready' => true,
+        ]);
+
+        // ... (Log aktivitas Batch 1 biarkan tetap sama)
+
+        // ======================================
+        // BATCH 2: Flow dengan Export Track
+        // ======================================
+        $batch2 = Batch::create([
+            'batch_code' => 'TIM-MON-20251120-002',
+            'lot_number' => 'L-MON-20251120-002-B',
+            
+            // PERBAIKAN DISINI
+            'product_code_id' => 1, // TIM-MON-RAW
+            
+            'status' => 'delivered',
+            'initial_weight' => 30000,
+            'current_weight' => 1500,
+            'weight_unit' => 'kg',
+            'tonase' => 30.00,
+            'konsentrat_persen' => 10.00,
+            'massa_ltj_kg' => 3000,
+            'nd_content' => 35.00, 'y_content' => 25.00, 'ce_content' => 20.00, 'la_content' => 15.00, 'pr_content' => 5.00,
+            'origin_location' => 'PT Len Industri (Defend ID)',
+            'current_location' => 'NGK Busi Indonesia',
+            'container_code' => 'K-TMH-002',
+            'keterangan' => 'Diterima 1.5T material LTJ oleh NGK Busi',
+            'created_by' => $users['user_len']->id,
+            'current_owner_partner_id' => $partners['ngk']->id,
+            'is_ready' => true,
+        ]);
+
+        // ... (Log aktivitas Batch 2 tetap sama)
+
+        // ======================================
+        // BATCH 3: Flow Kompleks
+        // ======================================
+        $batch3 = Batch::create([
+            'batch_code' => 'TIM-MON-20251120-003',
+            'lot_number' => 'L-MON-20251120-003-C',
+            
+            // PERBAIKAN DISINI
+            'product_code_id' => 1, // TIM-MON-RAW
+            
+            'status' => 'processing',
+            'initial_weight' => 50000,
+            'current_weight' => 50000,
+            'weight_unit' => 'kg',
+            'tonase' => 50.00,
+            'konsentrat_persen' => 8.00,
+            'massa_ltj_kg' => 4000,
+            'nd_content' => 38.00, 'y_content' => 22.00, 'ce_content' => 18.00, 'la_content' => 12.00, 'pr_content' => 10.00,
+            'origin_location' => 'PT Aneka Tambang Tbk',
+            'current_location' => 'Processing - PT Aneka Tambang',
+            'container_code' => 'K-TMH-003',
+            'keterangan' => 'Dalam proses pemisahan - Batch 3',
+            'created_by' => $users['operator_timah']->id,
+            'current_owner_partner_id' => $partners['antam']->id,
+            'is_ready' => false,
+        ]);
+
+        // ... (Log aktivitas Batch 3 tetap sama)
+
+        // ======================================
+        // BATCH 4: Flow Processing -> Stocking
+        // ======================================
+        $batch4 = Batch::create([
+            'batch_code' => 'TIM-CER-20251120-004',
+            'lot_number' => 'L-CER-20251120-004-D',
+            
+            // PERBAIKAN DISINI: Gunakan ID 4 untuk MID-CE-OXI99
+            'product_code_id' => 4, // MID-CE-OXI99
+            
+            'status' => 'ready',
+            'initial_weight' => 30000,
+            'current_weight' => 3600,
+            'weight_unit' => 'kg',
+            'tonase' => 30.00,
+            'konsentrat_persen' => 12.00,
+            'massa_ltj_kg' => 3600,
+            'nd_content' => 10.00, 'y_content' => 15.00, 'ce_content' => 60.00, 'la_content' => 10.00, 'pr_content' => 5.00,
+            'origin_location' => 'PT Pupuk Kujang',
+            'current_location' => 'Warehouse PT Pupuk Kujang',
+            'container_code' => 'K-TMH-004',
+            'keterangan' => 'Stocking Cerium Oksida',
+            'created_by' => $users['user_pupuk']->id,
+            'current_owner_partner_id' => $partners['pupuk_kujang']->id,
+            'is_ready' => true,
+        ]);
+
+        // ... (Log aktivitas Batch 4 tetap sama)
+
+        // ======================================
+        // BATCH 5: Flow Export -> Produksi Baterai
+        // ======================================
+        $batch5 = Batch::create([
+            'batch_code' => 'TIM-MON-20251120-005',
+            'lot_number' => 'L-MON-20251120-005-E',
+            
+            // PERBAIKAN DISINI
+            'product_code_id' => 1, // TIM-MON-RAW
+            
+            'status' => 'delivered',
+            'initial_weight' => 25000,
+            'current_weight' => 3500,
+            'weight_unit' => 'kg',
+            'tonase' => 25.00,
+            'konsentrat_persen' => 14.00,
+            'massa_ltj_kg' => 3500,
+            'nd_content' => 45.00, 'y_content' => 20.00, 'ce_content' => 15.00, 'la_content' => 12.00, 'pr_content' => 8.00,
+            'origin_location' => 'PT Siemens Indonesia',
+            'current_location' => 'PT Siemens Indonesia - Jakarta',
+            'container_code' => 'K-TMH-005',
+            'keterangan' => 'Produksi Baterai',
+            'created_by' => $users['user_siemens']->id,
+            'current_owner_partner_id' => $partners['siemens']->id,
+            'is_ready' => true,
+        ]);
+
+        // ... (Log aktivitas Batch 5 tetap sama)
+
+        // ======================================
+        // BATCH 6: Flow Processing Magnet
+        // ======================================
+        $batch6 = Batch::create([
+            'batch_code' => 'TIM-NEO-20251120-006',
+            'lot_number' => 'L-NEO-20251120-006-F',
+            
+            // PERBAIKAN DISINI: Gunakan ID 3 untuk MID-ND-OXI99
+            'product_code_id' => 3, // MID-ND-OXI99
+            
+            'status' => 'delivered',
+            'initial_weight' => 15000,
+            'current_weight' => 3000,
+            'weight_unit' => 'kg',
+            'tonase' => 15.00,
+            'konsentrat_persen' => 20.00,
+            'massa_ltj_kg' => 3000,
+            'nd_content' => 75.00, 'y_content' => 10.00, 'ce_content' => 8.00, 'la_content' => 5.00, 'pr_content' => 2.00,
+            'origin_location' => 'PT Astra Otoparts Tbk',
+            'current_location' => 'Denso Indonesia - Jakarta',
+            'container_code' => 'K-TMH-006',
+            'keterangan' => 'Produksi Magnet Permanen',
+            'created_by' => $users['user_astra']->id,
+            'current_owner_partner_id' => $partners['denso']->id,
+            'is_ready' => true,
+        ]);
+
+        // ... (Log aktivitas Batch 6 tetap sama)
+
+        // ======================================
+        // BATCH 7: Flow Processing -> Ekspor Produk
+        // ======================================
+        $batch7 = Batch::create([
+            'batch_code' => 'TIM-MON-20251120-007',
+            'lot_number' => 'L-MON-20251120-007-G',
+            
+            // PERBAIKAN DISINI
+            'product_code_id' => 1, // TIM-MON-RAW
+            
+            'status' => 'delivered',
+            'initial_weight' => 30000,
+            'current_weight' => 2400,
+            'weight_unit' => 'kg',
+            'tonase' => 30.00,
+            'konsentrat_persen' => 10.00,
+            'massa_ltj_kg' => 3000,
+            'nd_content' => 40.00, 'y_content' => 25.00, 'ce_content' => 18.00, 'la_content' => 12.00, 'pr_content' => 5.00,
+            'origin_location' => 'PT Rekacipta Inovasi',
+            'current_location' => 'Export - Stok produk jadi',
+            'container_code' => 'K-TMH-007',
+            'keterangan' => 'Stok produk jadi',
+            'created_by' => $users['user_rekacipta']->id,
+            'current_owner_partner_id' => $partners['ngk']->id,
+            'is_ready' => true,
+        ]);
+
+        $allActivities[] = ['batch' => $batch7, 'timestamp' => $baseDate->copy()->addDays(1)->addHours(5), 'action' => 'RECEIVING_MATERIAL', 'user' => $users['user_rekacipta'], 'notes' => 'Diterima dari PT Mitra Stania. Input 1500 kg LTJ'];
+        $allActivities[] = ['batch' => $batch7, 'timestamp' => $baseDate->copy()->addDays(2)->addHours(1), 'action' => 'PRODUKSI_LTJ', 'user' => $users['user_rekacipta'], 'notes' => 'Input proses: 3000 kg LTJ (Batch 7)'];
+        $allActivities[] = ['batch' => $batch7, 'timestamp' => $baseDate->copy()->addDays(3)->addHours(5), 'action' => 'STOCKING_PRODUK', 'user' => $users['user_rekacipta'], 'notes' => 'Output: 1400 kg. Stok produk jadi'];
+        $allActivities[] = ['batch' => $batch7, 'timestamp' => $baseDate->copy()->addDays(4)->addHours(5), 'action' => 'RECEIVING_END_USER', 'user' => $users['user_ngk'], 'notes' => 'Stok 1.4T produk jadi. Batch selesai'];
+
+        // Sort by timestamp
+        usort($allActivities, function($a, $b) {
+            return $a['timestamp']->timestamp - $b['timestamp']->timestamp;
+        });
+
+        // Create logs
+        $logCount = 0;
+        foreach ($allActivities as $activity) {
+            BatchLog::create([
+                'batch_id' => $activity['batch']->id,
+                'action' => $activity['action'],
+                'actor_user_id' => $activity['user']->id,
+                'notes' => $activity['notes'],
+                'created_at' => $activity['timestamp'],
+                'updated_at' => $activity['timestamp'],
+            ]);
+            $logCount++;
+        }
+
+        $this->command->info('   ✓ Batches: 7 batches');
+        $this->command->info('   ✓ Activity logs: ' . $logCount . ' activities');
+    }
+
+    /**
+     * Helper: Create batch
+     */
+    private function createBatch($data)
+    {
+        return Batch::create($data);
+    }
+
+    /**
+     * Print summary
+     */
+    private function printSummary()
+    {
         $this->command->info('');
         $this->command->info('========================================');
-        $this->command->info('=== LOGIN CREDENTIALS ===');
+        $this->command->info('📋 LOGIN CREDENTIALS (Password: password)');
         $this->command->info('========================================');
         $this->command->info('');
-        $this->command->info('PT TIMAH (Internal):');
-        $this->command->info('  Super Admin    : superadmin@timah.com / password');
-        $this->command->info('  Admin Ops      : admin@timah.com / password');
-        $this->command->info('  Admin Warehouse: admin.warehouse@timah.com / password');
-        $this->command->info('  Operator       : operator1@timah.com / password');
+        $this->command->info('🏢 PT TIMAH (Internal):');
+        $this->command->info('  Super Admin  : superadmin@timah.com');
+        $this->command->info('  Admin        : admin@timah.com');
+        $this->command->info('  Operator     : operator@timah.com');
+        $this->command->info('  Auditor      : auditor@timah.com');
         $this->command->info('');
-        $this->command->info('UPSTREAM PARTNERS:');
-        $this->command->info('  PT Antam       : user@antam.com / password');
-        $this->command->info('  PT Mitra Stania: user@mitrastania.com / password');
-        $this->command->info('');
-        $this->command->info('MIDDLESTREAM PARTNERS (Simulasi):');
-        $this->command->info('  Processing     : mitra.processing@partner.com / password');
-        $this->command->info('  Refinery       : mitra.refinery@partner.com / password');
-        $this->command->info('');
-        $this->command->info('DOWNSTREAM PARTNERS (Simulasi):');
-        $this->command->info('  Magnet         : downstream.magnet@partner.com / password');
-        $this->command->info('  Battery        : downstream.battery@partner.com / password');
-        $this->command->info('  Phosphor       : downstream.phosphor@partner.com / password');
-        $this->command->info('');
-        $this->command->info('END USERS - Petrochemical:');
-        $this->command->info('  Pertamina      : user@pertamina.com / password');
-        $this->command->info('  Rekacipta      : user@rekacipta.com / password');
-        $this->command->info('  Chandra Asri   : user@chandrаasri.com / password');
-        $this->command->info('');
-        $this->command->info('END USERS - Automotive:');
-        $this->command->info('  Denso          : user@denso.co.id / password');
-        $this->command->info('  Astra Otoparts : user@astra-otoparts.com / password');
-        $this->command->info('  NGK Busi       : user@ngkbusi.co.id / password');
-        $this->command->info('');
-        $this->command->info('END USERS - Energy/Optical:');
-        $this->command->info('  PLN            : user@pln.co.id / password');
-        $this->command->info('  Len Industri   : user@len.co.id / password');
-        $this->command->info('  Siemens        : user@siemens.com / password');
-        $this->command->info('');
-        $this->command->info('END USERS - Aerospace & Defense:');
-        $this->command->info('  PT Dirgantara  : user@indonesian-aerospace.com / password');
-        $this->command->info('  PT Pindad      : user@pindad.com / password');
-        $this->command->info('  PT PAL         : user@pal.co.id / password');
-        $this->command->info('');
-        $this->command->info('AUDITOR/REGULATOR:');
-        $this->command->info('  Internal       : auditor@timah.com / password');
-        $this->command->info('  Kemenristekdikti: auditor.ext@kemenristekdikti.go.id / password');
+        $this->command->info('👥 END USER:');
+        $this->command->info('  PT Rekacipta : user@rekacipta.com');
+        $this->command->info('  PT Len       : user@len.co.id');
+        $this->command->info('  PT Pupuk     : user@pupukkujang.com');
+        $this->command->info('  PT Pindad    : user@pindad.com');
+        $this->command->info('  PT Dirgantara: user@indonesian-aerospace.com');
+        $this->command->info('  Denso        : user@denso.co.id');
+        $this->command->info('  Astra        : user@astraotoparts.com');
+        $this->command->info('  NGK Busi     : user@ngkbusi.co.id');
+        $this->command->info('  Siemens      : user@siemens.com');
         $this->command->info('========================================');
+        $this->command->info('');
+        $this->command->info('📊 DATABASE SUMMARY:');
+        $this->command->info('  ✓ 7 Product Codes');
+        $this->command->info('  ✓ 14 Partners (4 upstream + 10 end users)');
+        $this->command->info('  ✓ 13 Users (multi-role)');
+        $this->command->info('  ✓ 7 Batches dengan ~40 activity logs');
+        $this->command->info('========================================');
+        $this->command->info('');
+        $this->command->info('🚀 Ready! Login at: http://localhost:8000');
+        $this->command->info('');
     }
 }

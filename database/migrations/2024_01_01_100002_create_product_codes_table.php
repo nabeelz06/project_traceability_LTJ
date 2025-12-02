@@ -7,18 +7,23 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Buat table product_codes sesuai format [STAGE]-[MATERIAL]-[SPEC]
+     * Buat table product_codes
      */
     public function up(): void
     {
         Schema::create('product_codes', function (Blueprint $table) {
-            $table->string('code', 50)->primary(); // Format: TIM-MON-RAW
+            // PERBAIKAN: Gunakan ID auto-increment sebagai Primary Key
+            $table->id(); 
+            
+            // Kolom 'code' sekarang hanya Unique (bukan Primary Key)
+            $table->string('code', 50)->unique(); // Format: TIM-MON-RAW
+            
             $table->string('stage', 10); // TIM, MID, FINAL
             $table->string('material', 10); // MON, ND, PR, CE, Y, LE, MX
             $table->string('spec', 20); // RAW, CON, OXI99, OXI999, MET, REO
             $table->string('description');
             $table->string('category')->nullable();
-            $table->text('specifications')->nullable(); // Detail teknis produk
+            $table->text('specifications')->nullable();
             $table->timestamps();
 
             // Index untuk pencarian cepat

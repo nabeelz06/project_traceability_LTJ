@@ -1,7 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema; // DIPINDAHKAN KE SINI (PALING ATAS)
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\BatchController;
 use App\Http\Controllers\UserController;
@@ -14,9 +16,8 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TraceabilityController;
 use App\Http\Controllers\MitraBatchController;
 
-// --- Rute Tamu (Guest) ---
+// Guest Routes
 Route::middleware('guest')->group(function () {
-    // Mengarahkan root URL ('/') ke halaman login
     Route::get('/', function () {
         return redirect()->route('login');
     });
@@ -24,15 +25,14 @@ Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->name('login.post');
     
-    // Menambahkan kembali rute Password Reset
-    Route::get('/forgot-password', [AuthController::class, 'showForgotPassword'])->name('password.request');
-    Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])->name('password.email');
-    Route::get('/reset-password/{token}', [AuthController::class, 'showResetPassword'])->name('password.reset');
-    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
+    // Password Reset Routes
+    Route::get('forgot-password', [ForgotPasswordController::class, 'showLinkRequestForm'])->name('password.request');
+    Route::post('forgot-password', [ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email');
+    Route::get('reset-password/{token}', [ForgotPasswordController::class, 'showResetForm'])->name('password.reset');
+    Route::post('reset-password', [ForgotPasswordController::class, 'reset'])->name('password.update');
 });
 
-
-// --- Rute Terproteksi (Semua yang sudah login) ---
+// Authenticated Routes
 Route::middleware(['auth', 'user.active'])->group(function () {
     
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
@@ -118,4 +118,49 @@ Route::middleware(['auth', 'user.active'])->group(function () {
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
     });
+});
+
+// --- EMERGENCY DB CLEANER ---
+// Import sudah dipindahkan ke atas, jadi di sini tidak perlu ada use lagi.
+
+Route::get('/force-reset-db', function () {
+    // Disable foreign key checks to allow dropping tables in any order (optional, but safer)
+    // Note: Nile might strict on this, so we rely on order mostly.
+    
+    $tables = [
+        'system_logs',
+        'shipments',
+        'rfid_writes',
+        'documents',
+        'batch_logs',
+        'batches',       
+        'devices',
+        'product_codes', 
+        'users',         
+        'partners',      
+        'personal_access_tokens',
+        'password_reset_tokens',
+        'jobs',
+        'job_batches',
+        'failed_jobs',
+        'cache',
+        'cache_locks',
+        'sessions',
+        'migrations', // <--- Tabel biang kerok error Anda ada di sini
+    ];
+
+    $log = [];
+    foreach ($tables as $table) {
+        if (Schema::hasTable($table)) {
+            Schema::drop($table); // Drop biasa, bukan cascade
+            $log[] = "Dropped: $table";
+        } else {
+            $log[] = "Skipped (not found): $table";
+        }
+    }
+
+    return response()->json([
+        'message' => 'Database successfully wiped manually',
+        'details' => $log
+    ]);
 });

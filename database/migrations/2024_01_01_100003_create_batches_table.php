@@ -10,28 +10,58 @@ return new class extends Migration
     {
         Schema::create('batches', function (Blueprint $table) {
             $table->id();
+            
+            // Identitas Batch
             $table->string('batch_code')->unique();
-            $table->string('product_code');
+            $table->string('lot_number')->nullable()->unique(); // Ditambahkan sesuai seeder
+            $table->string('container_code')->nullable(); // Di seeder 'container_number', di model 'container_code' (kita samakan ke code)
+            
+            // Relasi Produk (Integer ID)
+            $table->unsignedBigInteger('product_code_id'); 
+            
+            // Relasi Parent/Child
             $table->unsignedBigInteger('parent_batch_id')->nullable();
-            $table->decimal('initial_weight', 10, 2);
-            $table->decimal('current_weight', 10, 2);
+            
+            // Data Berat
+            $table->decimal('initial_weight', 12, 2);
+            $table->decimal('current_weight', 12, 2);
             $table->string('weight_unit')->default('kg');
-            $table->string('container_code')->nullable();
-            $table->string('current_location');
-            $table->string('status');
+            
+            // Data Spesifik LTJ (Ditambahkan sesuai seeder)
+            $table->decimal('tonase', 10, 3)->nullable();
+            $table->decimal('konsentrat_persen', 5, 2)->nullable();
+            $table->decimal('massa_ltj_kg', 12, 2)->nullable();
+            $table->text('keterangan')->nullable();
+            
+            // Lokasi
+            $table->string('origin_location')->nullable();
+            $table->string('current_location')->nullable();
+            
+            // Status & Tracking
+            $table->string('status')->default('created');
             $table->string('rfid_tag_uid')->nullable()->unique();
             $table->boolean('is_ready')->default(false);
-            $table->unsignedBigInteger('created_by_user_id');
+            
+            // Ownership (created_by bukan created_by_user_id)
+            $table->unsignedBigInteger('created_by'); 
             $table->unsignedBigInteger('current_owner_partner_id')->nullable();
+            
+            // Metadata
             $table->json('quality_data')->nullable();
             $table->json('history_log')->nullable();
+            
             $table->timestamps();
             
-            $table->foreign('product_code')->references('code')->on('product_codes');
+            // Foreign Keys
+            $table->foreign('product_code_id')->references('id')->on('product_codes');
             $table->foreign('parent_batch_id')->references('id')->on('batches')->onDelete('set null');
-            $table->foreign('created_by_user_id')->references('id')->on('users');
+            $table->foreign('created_by')->references('id')->on('users');
             $table->foreign('current_owner_partner_id')->references('id')->on('partners');
         });
     }
-    public function down(): void { Schema::dropIfExists('batches'); }
+
+    public function down(): void 
+    { 
+        Schema::dropIfExists('batches'); 
+    }
 };
