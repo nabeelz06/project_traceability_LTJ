@@ -14,10 +14,11 @@ use Illuminate\Support\Facades\Storage;
 class BatchController extends Controller
 {
     /**
-     * Tampilkan daftar semua batch
+     * Tampilkan daftar semua batch dengan filter & search
      */
     public function index(Request $request)
     {
+        // Query batch dengan relasi
         $query = Batch::with(['productCode', 'creator', 'currentPartner']);
 
         // Filter berdasarkan status
@@ -30,20 +31,21 @@ class BatchController extends Controller
             $query->where('product_code_id', $request->product_code_id);
         }
 
-        // Pencarian
+        // Pencarian batch
         if ($request->has('search')) {
             $query->search($request->search);
         }
 
-        // Parent batch only atau semua
+        // Filter parent batch only
         if ($request->has('type') && $request->type == 'parent') {
             $query->parentOnly();
         }
 
+        // Ambil data batch dengan pagination
         $batches = $query->orderBy('created_at', 'desc')->paginate(20);
         
-        // FIX: Gunakan lowercase untuk konsistensi dengan view
-        $productcodes = ProductCode::where('stage', 'Mitra Pemurnian LTJ')->get();
+        // Ambil semua product codes untuk dropdown filter
+        $productcodes = ProductCode::orderBy('code')->get();
 
         return view('batches.index', compact('batches', 'productcodes'));
     }
@@ -53,14 +55,13 @@ class BatchController extends Controller
      */
     public function create()
     {
-        // Hanya Super Admin dan Admin PT Timah yang bisa create parent batch
+        // Cek permission - hanya super admin & admin PT Timah
         if (!Auth::user()->canCreateParentBatch()) {
             abort(403, 'Anda tidak memiliki akses untuk membuat batch induk.');
         }
 
-        $productCodes = ProductCode::where('stage', 'Mitra Pemurnian LTJ')
-            ->orderBy('code')
-            ->get();
+        // Ambil semua product codes untuk dropdown
+        $productCodes = ProductCode::orderBy('code')->get();
 
         return view('batches.create', compact('productCodes'));
     }
@@ -70,12 +71,12 @@ class BatchController extends Controller
      */
     public function store(Request $request)
     {
-        // Validasi permission
+        // Cek permission
         if (!Auth::user()->canCreateParentBatch()) {
             abort(403, 'Anda tidak memiliki akses untuk membuat batch induk.');
         }
 
-        // Validasi input
+        // Validasi input form
         $validated = $request->validate([
             'product_code_id' => 'required|exists:product_codes,id',
             'initial_weight' => 'required|numeric|min:0.01',
@@ -102,23 +103,14 @@ class BatchController extends Controller
             'current_location_name' => 'nullable|string|max:255',
             
             // Evidence Files
-            'evidence_photos.*' => 'nullable|image|max:5120', // 5MB per foto
-            'evidence_videos.*' => 'nullable|mimes:mp4,avi,mov|max:51200', // 50MB per video
-            'evidence_documents.*' => 'nullable|mimes:pdf,doc,docx,xlsx|max:10240', // 10MB per dokumen
+            'evidence_photos.*' => 'nullable|image|max:5120', // 5MB
+            'evidence_videos.*' => 'nullable|mimes:mp4,avi,mov|max:51200', // 50MB
+            'evidence_documents.*' => 'nullable|mimes:pdf,doc,docx,xlsx|max:10240', // 10MB
         ], [
             'product_code_id.required' => 'Product code wajib dipilih.',
             'initial_weight.required' => 'Tonase/berat wajib diisi.',
-            'initial_weight.min' => 'Tonase/berat minimal 0.01.',
-            'weight_unit.required' => 'Unit wajib dipilih.',
             'konsentrat_persen.required' => 'Konsentrat wajib diisi.',
-            'konsentrat_persen.max' => 'Konsentrat maksimal 100%.',
             'origin_location.required' => 'Lokasi asal wajib diisi.',
-            'evidence_photos.*.image' => 'File harus berupa gambar.',
-            'evidence_photos.*.max' => 'Ukuran foto maksimal 5MB.',
-            'evidence_videos.*.mimes' => 'Format video harus mp4, avi, atau mov.',
-            'evidence_videos.*.max' => 'Ukuran video maksimal 50MB.',
-            'evidence_documents.*.mimes' => 'Format dokumen harus pdf, doc, docx, atau xlsx.',
-            'evidence_documents.*.max' => 'Ukuran dokumen maksimal 10MB.',
         ]);
 
         // Validasi tambahan: Total 5 unsur tidak boleh > 100%
@@ -137,7 +129,7 @@ class BatchController extends Controller
         try {
             DB::beginTransaction();
 
-            // Konversi tonase untuk initial_weight dan current_weight
+            // Konversi weight ke kg
             $weightInKg = $validated['weight_unit'] == 'ton' 
                 ? $validated['initial_weight'] * 1000 
                 : $validated['initial_weight'];
@@ -147,7 +139,7 @@ class BatchController extends Controller
                 ? $validated['initial_weight'] 
                 : $validated['initial_weight'] / 1000;
 
-            // Auto-calculate massa_ltj_kg jika tidak diisi manual
+            // Auto-calculate massa_ltj_kg
             $massaLtjKg = $validated['massa_ltj_kg'] ?? 
                          Batch::calculateMassaLtj($tonaseInTon, $validated['konsentrat_persen']);
 
@@ -201,7 +193,7 @@ class BatchController extends Controller
                 }
             }
 
-            // Buat batch baru
+            // Buat batch baru di database
             $batch = Batch::create([
                 'product_code_id' => $validated['product_code_id'],
                 'initial_weight' => $weightInKg,
@@ -251,8 +243,6 @@ class BatchController extends Controller
                     'tonase' => $tonaseInTon . ' ton',
                     'konsentrat' => $validated['konsentrat_persen'] . '%',
                     'massa_ltj' => $massaLtjKg . ' kg',
-                    'evidence_count' => count($evidencePhotos) + count($evidenceVideos) + count($evidenceDocuments),
-                    'has_gps' => $batch->hasGpsCoordinates(),
                 ]),
             ]);
 
@@ -265,7 +255,7 @@ class BatchController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             
-            // Hapus file yang sudah diupload jika terjadi error
+            // Hapus file yang sudah diupload jika error
             foreach ($evidencePhotos as $photo) {
                 Storage::disk('public')->delete(str_replace('/storage/', '', $photo['url']));
             }
@@ -283,10 +273,11 @@ class BatchController extends Controller
     }
 
     /**
-     * Tampilkan detail batch
+     * Tampilkan detail batch dengan relasi
      */
     public function show($id)
     {
+        // Ambil batch dengan semua relasi
         $batch = Batch::with([
             'productCode', 
             'creator', 
@@ -308,22 +299,21 @@ class BatchController extends Controller
     {
         $batch = Batch::findOrFail($id);
 
-        // Cek permission
+        // Cek apakah batch bisa diedit
         if (!$batch->canBeEdited()) {
             return redirect()
                 ->route('batches.show', $batch->id)
                 ->with('error', 'Batch dengan status "' . $batch->getStatusLabel() . '" tidak dapat diedit.');
         }
 
-        $productCodes = ProductCode::where('stage', 'Mitra Pemurnian LTJ')
-            ->orderBy('code')
-            ->get();
+        // Ambil semua product codes untuk dropdown
+        $productCodes = ProductCode::orderBy('code')->get();
 
         return view('batches.edit', compact('batch', 'productCodes'));
     }
 
     /**
-     * Update batch
+     * Update batch yang sudah ada
      */
     public function update(Request $request, $id)
     {
@@ -336,7 +326,7 @@ class BatchController extends Controller
                 ->with('error', 'Batch dengan status "' . $batch->getStatusLabel() . '" tidak dapat diedit.');
         }
 
-        // Validasi sama seperti store
+        // Validasi input
         $validated = $request->validate([
             'product_code_id' => 'required|exists:product_codes,id',
             'initial_weight' => 'required|numeric|min:0.01',
@@ -432,12 +422,13 @@ class BatchController extends Controller
     }
 
     /**
-     * Hapus batch
+     * Hapus batch dari database
      */
     public function destroy($id)
     {
         $batch = Batch::findOrFail($id);
 
+        // Cek apakah batch bisa dihapus
         if (!$batch->canBeDeleted()) {
             return redirect()
                 ->route('batches.index')

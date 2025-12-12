@@ -23,8 +23,8 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // === Rute Otentikasi Device ===
 // Rute ini tidak dilindungi middleware 'auth.device' karena ini adalah
 // rute untuk mendapatkan token/sesi.
-Route::post('/device/authenticate', [DeviceApiController::class, 'authenticate'])
-    ->name('api.device.authenticate');
+// Route::post('/device/authenticate', [DeviceApiController::class, 'authenticate'])
+//     ->name('api.device.authenticate');
 
 
 // === Rute Operasi Device (RFID) ===

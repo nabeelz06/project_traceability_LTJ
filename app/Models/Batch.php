@@ -21,7 +21,7 @@ class Batch extends Model
         'initial_weight' => 'decimal:2',
         'current_weight' => 'decimal:2',
         'tonase' => 'decimal:3',
-        'konsentrat_persen' => 'decimal:2',
+        'konsentrat_persen' => 'decimal:2', 
         'massa_ltj_kg' => 'decimal:2',
         'nd_content' => 'decimal:2',
         'y_content' => 'decimal:2',
@@ -41,6 +41,14 @@ class Batch extends Model
         'efficiency_percent' => 'decimal:2',
         'last_gps_update' => 'datetime',
         'qr_generated_at' => 'datetime',
+        // NEW: Mineral Ikutan Process Tracking Datetime Fields
+        'stocked_at' => 'datetime',
+        'retrieved_at' => 'datetime',
+        // 'processed_at' => 'datetime',
+        'exported_at' => 'datetime',
+        'analyzed_at' => 'datetime',
+        // Split batch tracking
+        'is_split' => 'boolean',
     ];
 
     // ============================================
@@ -90,6 +98,44 @@ class Batch extends Model
     public function shipments()
     {
         return $this->hasMany(Shipment::class, 'batch_id');
+    }
+
+    // NEW: Checkpoint & Process Tracking Relationships
+    public function checkpoints()
+    {
+        return $this->hasMany(Checkpoint::class, 'batch_id')->orderBy('created_at', 'asc');
+    }
+
+    public function stockingLogs()
+    {
+        return $this->hasMany(StockingLog::class, 'batch_id')->orderBy('created_at', 'desc');
+    }
+
+    public function exportLogs()
+    {
+        return $this->hasMany(ExportLog::class, 'batch_id')->orderBy('exported_at', 'desc');
+    }
+
+    /* FIXED: Change singular to plural, hasOne to hasMany */
+    public function labAnalyses()
+    {
+        return $this->hasMany(LabAnalysis::class, 'batch_id')->orderBy('analyzed_at', 'desc');
+    }
+
+    /* OPTIONAL: Keep singular version for backward compatibility */
+    public function labAnalysis()
+    {
+        return $this->hasOne(LabAnalysis::class, 'batch_id')->latestOfMany('analyzed_at');
+    }
+
+    public function splitChildren()
+    {
+        return $this->hasMany(Batch::class, 'split_from_batch_id');
+    }
+
+    public function splitParent()
+    {
+        return $this->belongsTo(Batch::class, 'split_from_batch_id');
     }
 
     // ============================================
@@ -349,11 +395,16 @@ class Batch extends Model
     {
         $labels = [
             'created' => 'Dibuat',
+            'pending' => 'Pending',
             'ready_to_ship' => 'Siap Kirim',
             'shipped' => 'Dalam Pengiriman',
+            'in_transit' => 'Dalam Transit',
             'received' => 'Diterima',
-            'processed' => 'Diproses',
+            'processing' => 'Diproses',
+            'processed' => 'Sudah Diproses',
             'delivered' => 'Terkirim',
+            'exported' => 'Diekspor',
+            'completed' => 'Selesai',
             'quarantine' => 'Karantina',
         ];
 
@@ -364,11 +415,16 @@ class Batch extends Model
     {
         $classes = [
             'created' => 'badge-secondary',
+            'pending' => 'badge-warning',
             'ready_to_ship' => 'badge-primary',
             'shipped' => 'badge-info',
+            'in_transit' => 'badge-info',
             'received' => 'badge-success',
-            'processed' => 'badge-warning',
+            'processing' => 'badge-warning',
+            'processed' => 'badge-success',
             'delivered' => 'badge-success',
+            'exported' => 'badge-primary',
+            'completed' => 'badge-success',
             'quarantine' => 'badge-danger',
         ];
 
@@ -396,7 +452,7 @@ class Batch extends Model
 
     public function canBeEdited()
     {
-        return in_array($this->status, ['created', 'ready_to_ship']);
+        return in_array($this->status, ['created', 'pending', 'ready_to_ship']);
     }
 
     public function canBeDeleted()

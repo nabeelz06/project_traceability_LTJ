@@ -16,7 +16,7 @@ class AuthController extends Controller
     public function showLogin()
     {
         if (Auth::check()) {
-            return redirect()->route('dashboard');
+            return redirect($this->redirectToDashboard(Auth::user()->role));
         }
 
         return view('auth.login');
@@ -63,12 +63,34 @@ class AuthController extends Controller
                 ],
             ]);
 
-            return redirect()->intended(route('dashboard'));
+            // FIXED: Redirect berdasarkan role
+            $user = Auth::user();
+            return redirect()->intended($this->redirectToDashboard($user->role));
         }
 
         return back()->withErrors([
             'password' => 'Password yang Anda masukkan salah.',
         ])->onlyInput('email');
+    }
+
+    /**
+     * Redirect ke dashboard sesuai role
+     */
+    private function redirectToDashboard(string $role)
+    {
+        return match($role) {
+            'super_admin', 'admin' => route('dashboard'),
+            'operator' => route('scan.index'),
+            'wet_operator' => route('wet-process.dashboard'),
+            'dry_operator' => route('dry-process.dashboard'),
+            'warehouse_operator' => route('warehouse.dashboard'),
+            'lab_operator' => route('lab.dashboard'),
+            'mitra_middlestream' => route('mitra.dashboard'),
+            'mitra_downstream' => route('downstream.dashboard'),
+            'auditor' => route('audit.dashboard'),
+            'g_bim', 'g_esdm' => route('regulator.dashboard'), // REGULATOR!
+            default => route('dashboard'),
+        };
     }
 
     /**

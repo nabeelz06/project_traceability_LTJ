@@ -46,19 +46,43 @@ class ProductCodeController extends Controller
 
     /**
      * Store new product code
+     * Format code: [STAGE]-[MATERIAL]-[SPEC]
+     * Contoh: TIM-MON-RAW, MID-ND-OXI99
      */
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'code' => 'required|string|max:50|unique:product_codes,code',
+            'stage' => 'required|in:Upstream,Midstream,Downstream',
+            'material' => 'required|string|max:10',
+            'spec' => 'required|string|max:20',
             'description' => 'required|string|max:255',
-            'stage' => 'required|in:RAW,MID,FINAL',
+            'category' => 'nullable|string|max:100',
             'specifications' => 'nullable|string|max:1000',
         ]);
 
         DB::beginTransaction();
         try {
-            $productCode = ProductCode::create($validated);
+            // Generate code dari stage, material, spec
+            // Format: TIM-MON-RAW (stage prefix + material + spec)
+            $stagePrefix = $this->getStagePrefix($validated['stage']);
+            $code = strtoupper($stagePrefix . '-' . $validated['material'] . '-' . $validated['spec']);
+
+            // Cek apakah code sudah ada
+            if (ProductCode::where('code', $code)->exists()) {
+                return back()->withInput()
+                    ->with('error', 'Product code ' . $code . ' sudah ada. Gunakan kombinasi material dan spec yang berbeda.');
+            }
+
+            // Create product code
+            $productCode = ProductCode::create([
+                'code' => $code,
+                'stage' => $validated['stage'],
+                'material' => strtoupper($validated['material']),
+                'spec' => strtoupper($validated['spec']),
+                'description' => $validated['description'],
+                'category' => $validated['category'] ?? null,
+                'specifications' => $validated['specifications'] ?? null,
+            ]);
 
             // Log aktivitas
             SystemLog::create([
@@ -66,10 +90,10 @@ class ProductCodeController extends Controller
                 'action' => 'product_code_created',
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'details' => [
+                'details' => json_encode([
                     'code' => $productCode->code,
                     'description' => $productCode->description,
-                ],
+                ]),
             ]);
 
             DB::commit();
@@ -90,7 +114,7 @@ class ProductCodeController extends Controller
     public function show(ProductCode $productCode)
     {
         $productCode->loadCount('batches');
-        
+
         return view('admin.product-codes.show', compact('productCode'));
     }
 
@@ -109,7 +133,7 @@ class ProductCodeController extends Controller
     {
         $validated = $request->validate([
             'description' => 'required|string|max:255',
-            'stage' => 'required|in:RAW,MID,FINAL',
+            'category' => 'nullable|string|max:100',
             'specifications' => 'nullable|string|max:1000',
         ]);
 
@@ -123,9 +147,9 @@ class ProductCodeController extends Controller
                 'action' => 'product_code_updated',
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
-                'details' => [
+                'details' => json_encode([
                     'code' => $productCode->code,
-                ],
+                ]),
             ]);
 
             DB::commit();
@@ -161,9 +185,9 @@ class ProductCodeController extends Controller
                 'action' => 'product_code_deleted',
                 'ip_address' => request()->ip(),
                 'user_agent' => request()->userAgent(),
-                'details' => [
+                'details' => json_encode([
                     'code' => $code,
-                ],
+                ]),
             ]);
 
             DB::commit();
@@ -175,5 +199,20 @@ class ProductCodeController extends Controller
             DB::rollBack();
             return back()->with('error', 'Gagal menghapus product code: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Helper: Get stage prefix untuk generate code
+     * Upstream = TIM, Midstream = MID, Downstream = FINAL
+     */
+    private function getStagePrefix($stage)
+    {
+        $prefixes = [
+            'Upstream' => 'TIM',
+            'Midstream' => 'MID',
+            'Downstream' => 'FINAL',
+        ];
+
+        return $prefixes[$stage] ?? 'TIM';
     }
 }

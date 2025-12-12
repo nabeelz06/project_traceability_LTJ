@@ -606,9 +606,25 @@
                         <li><a href="{{ route('scan.checkin') }}" class="{{ request()->routeIs('scan.checkin') ? 'active' : '' }}">
                             <i class="bi bi-box-arrow-in-down"></i>Check-In
                         </a></li>
+                    @elseif(auth()->user()->isWetOperator())
+                        <li><a href="{{ route('wet-process.dashboard') }}" class="{{ request()->routeIs('wet-process.*') ? 'active' : '' }}">
+                            <i class="bi bi-droplet-half"></i>Wet Process
+                        </a></li>
+                    @elseif(auth()->user()->isDryOperator())
+                        <li><a href="{{ route('dry-process.dashboard') }}" class="{{ request()->routeIs('dry-process.*') ? 'active' : '' }}">
+                            <i class="bi bi-gear-wide-connected"></i>Dry Process
+                        </a></li>
+                    @elseif(auth()->user()->isWarehouseOperator())
+                        <li><a href="{{ route('warehouse.dashboard') }}" class="{{ request()->routeIs('warehouse.*') ? 'active' : '' }}">
+                            <i class="bi bi-boxes"></i>Warehouse
+                        </a></li>
+                    @elseif(auth()->user()->isLabOperator())
+                        <li><a href="{{ route('lab.dashboard') }}" class="{{ request()->routeIs('lab.*') ? 'active' : '' }}">
+                            <i class="bi bi-microscope"></i>Lab/Project Plan
+                        </a></li>
                     @endif
                     
-                    <li><a href="{{ route('traceability.search') }}">
+                    <li><a href="{{ route('traceability.search') }}" class="{{ request()->routeIs('traceability.*') ? 'active' : '' }}">
                         <i class="bi bi-search"></i>Traceability
                     </a></li>
                 @endauth

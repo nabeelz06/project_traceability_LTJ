@@ -8,6 +8,8 @@ use App\Models\Batch;
 use App\Models\BatchLog;
 use App\Models\Partner;
 use App\Models\User;
+use App\Models\ExportLog; 
+use App\Models\LabAnalysis; 
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
@@ -28,7 +30,14 @@ class DashboardController extends Controller
             return $this->mitraDashboard();
         } elseif ($user->isMitraDownstream()) {
             return $this->downstreamDashboard();
-        } elseif ($user->isGovernment()) {
+            
+        // PERBAIKAN DI SINI: Cek Regulator Dulu!
+        } elseif ($user->role === 'g_bim' || $user->role === 'g_esdm') {
+            // Redirect ke RegulatorController yang sudah ada logika lengkapnya
+            return redirect()->route('regulator.dashboard'); 
+            
+        } elseif ($user->isGovernment()) { 
+            // Fallback untuk government lain (misal Auditor murni jika ada)
             return $this->auditDashboard();
         }
 
@@ -135,6 +144,73 @@ class DashboardController extends Controller
             'partnerStats',
             'recentBatches'
         ));
+    }
+
+    /* Dashboard untuk Regulator (BIM/ESDM) */
+    public function regulatorDashboard()
+    {
+        $stats = [
+            'total_batches' => Batch::count(),
+            'active_batches' => Batch::whereIn('status', ['in_transit', 'processing', 'received'])->count(),
+            'completed_batches' => Batch::where('status', 'completed')->count(),
+            
+            // Warehouse stock untuk pie chart
+            'warehouse_stock' => [
+                'zircon' => $this->getWarehouseStockByMaterial('ZIRCON'),
+                'ilmenite' => $this->getWarehouseStockByMaterial('ILMENITE'),
+                'monasit' => $this->getWarehouseStockByMaterial('MON'),
+            ],
+            
+            // Export summary
+            'total_exports' => ExportLog::count(),
+            'export_weight' => ExportLog::sum('weight_kg'),
+            
+            // Lab analysis summary
+            'pending_analysis' => Batch::where('process_stage', 'lab')
+                ->doesntHave('labAnalysis')
+                ->count(),
+            'completed_analysis' => LabAnalysis::count(),
+            'avg_recovery' => LabAnalysis::avg('total_recovery') ?? 0,
+        ];
+
+        // Stock composition untuk pie chart (3 warna)
+        $stockComposition = collect([
+            ['material' => 'Zircon', 'weight' => $stats['warehouse_stock']['zircon'], 'color' => '#e74c3c'],
+            ['material' => 'Ilmenite', 'weight' => $stats['warehouse_stock']['ilmenite'], 'color' => '#9b59b6'],
+            ['material' => 'Monasit', 'weight' => $stats['warehouse_stock']['monasit'], 'color' => '#27ae60'],
+        ])->filter(fn($item) => $item['weight'] > 0);
+
+        // Recent batches
+        $recentBatches = Batch::with('productCode')
+            ->orderBy('created_at', 'desc')
+            ->take(10)
+            ->get();
+
+        // Recent exports
+        $recentExports = ExportLog::with('batch.productCode')
+            ->orderBy('exported_at', 'desc')
+            ->take(10)
+            ->get();
+
+        // Recent lab analysis
+        $recentAnalysis = LabAnalysis::with('batch')
+            ->orderBy('analyzed_at', 'desc')
+            ->take(10)
+            ->get();
+
+        return view('regulator.dashboard', compact('stats', 'stockComposition', 'recentBatches', 'recentExports', 'recentAnalysis'));
+    }
+
+    /* Helper: Get warehouse stock by material */
+    private function getWarehouseStockByMaterial(string $material)
+    {
+        return Batch::where('process_stage', 'warehouse')
+            ->where('status', 'received')
+            ->whereNull('export_status')
+            ->whereHas('productCode', function($q) use ($material) {
+                $q->where('material', $material);
+            })
+            ->sum('current_weight');
     }
 
     /**
@@ -319,5 +395,160 @@ class DashboardController extends Controller
             'dailyActivity',
             'recentLogs'
         ));
+    }
+
+    /**
+     * Dashboard untuk Wet Process Operator
+     */
+    public function wetProcessDashboard()
+    {
+        $user = Auth::user();
+
+        $stats = [
+            'today_batches' => Batch::where('process_stage', 'wet_process')
+                ->whereDate('created_at', today())
+                ->count(),
+            'week_batches' => Batch::where('process_stage', 'wet_process')
+                ->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()])
+                ->count(),
+            'pending_dispatch' => Batch::where('process_stage', 'wet_process')
+                ->whereNull('current_checkpoint')
+                ->count(),
+            'total_weight_today' => Batch::where('process_stage', 'wet_process')
+                ->whereDate('created_at', today())
+                ->sum('initial_weight'),
+        ];
+
+        $recentBatches = Batch::where('process_stage', 'wet_process')
+            ->with('productCode')
+            ->orderBy('created_at', 'desc')
+            ->take(10)
+            ->get();
+
+        return view('wet-process.dashboard', compact('stats', 'recentBatches'));
+    }
+
+    /**
+     * Dashboard untuk Dry Process Operator
+     */
+    public function dryProcessDashboard()
+    {
+        $user = Auth::user();
+
+        $stats = [
+            'pending_receive' => Batch::where('current_checkpoint', 'CP1')
+                ->where('status', 'in_transit')
+                ->count(),
+            'in_stock' => Batch::where('process_stage', 'dry_process')
+                ->where('stocking_status', 'stocked')
+                ->count(),
+            'in_processing' => Batch::where('process_stage', 'dry_process')
+                ->where('status', 'processing')
+                ->count(),
+            'total_stock_weight' => Batch::where('process_stage', 'dry_process')
+                ->where('stocking_status', 'stocked')
+                ->sum('current_weight'),
+        ];
+
+        $pendingReceive = Batch::where('current_checkpoint', 'CP1')
+            ->where('status', 'in_transit')
+            ->with('productCode')
+            ->orderBy('updated_at', 'desc')
+            ->take(5)
+            ->get();
+
+        $stockBatches = Batch::where('process_stage', 'dry_process')
+            ->where('stocking_status', 'stocked')
+            ->with('productCode')
+            ->orderBy('stocked_at', 'desc')
+            ->take(10)
+            ->get();
+
+        return view('dry-process.dashboard', compact('stats', 'pendingReceive', 'stockBatches'));
+    }
+
+    /**
+     * Dashboard untuk Warehouse Operator
+     */
+    public function warehouseDashboard()
+    {
+        $user = Auth::user();
+
+        $stats = [
+            'pending_receive' => Batch::where('current_checkpoint', 'CP3')
+                ->where('status', 'in_transit')
+                ->count(),
+            'zircon_stock' => Batch::where('process_stage', 'warehouse')
+                ->where('status', 'received')
+                ->whereHas('productCode', fn($q) => $q->where('material', 'ZIRCON'))
+                ->sum('current_weight'),
+            'ilmenite_stock' => Batch::where('process_stage', 'warehouse')
+                ->where('status', 'received')
+                ->whereHas('productCode', fn($q) => $q->where('material', 'ILMENITE'))
+                ->sum('current_weight'),
+            'monasit_stock' => Batch::where('process_stage', 'warehouse')
+                ->where('status', 'received')
+                ->whereHas('productCode', fn($q) => $q->where('material', 'MON'))
+                ->sum('current_weight'),
+        ];
+
+        $stockComposition = collect([
+            ['material' => 'Zircon', 'weight' => $stats['zircon_stock']],
+            ['material' => 'Ilmenite', 'weight' => $stats['ilmenite_stock']],
+            ['material' => 'Monasit', 'weight' => $stats['monasit_stock']],
+        ])->filter(fn($item) => $item['weight'] > 0);
+
+        $pendingReceive = Batch::where('current_checkpoint', 'CP3')
+            ->where('status', 'in_transit')
+            ->with('productCode')
+            ->orderBy('updated_at', 'desc')
+            ->get();
+
+        $recentExports = ExportLog::with('batch.productCode', 'operator')
+            ->orderBy('exported_at', 'desc')
+            ->take(5)
+            ->get();
+
+        return view('warehouse.dashboard', compact('stats', 'stockComposition', 'pendingReceive', 'recentExports'));
+    }
+
+    /**
+     * Dashboard untuk Lab Operator
+     */
+    public function labDashboard()
+    {
+        $user = Auth::user();
+
+        $stats = [
+            'pending_receive' => Batch::where('status', 'in_transit')
+                ->whereHas('productCode', fn($q) => $q->where('material', 'MON'))
+                ->where('is_split', true)
+                ->count(),
+            'pending_analysis' => Batch::where('process_stage', 'lab')
+                ->doesntHave('labAnalysis')
+                ->count(),
+            'completed_analysis' => LabAnalysis::count(),
+            'avg_recovery' => LabAnalysis::avg('total_recovery') ?? 0,
+        ];
+
+        $pendingReceive = Batch::where('status', 'in_transit')
+            ->whereHas('productCode', fn($q) => $q->where('material', 'MON'))
+            ->where('is_split', true)
+            ->with('productCode', 'splitParent')
+            ->orderBy('updated_at', 'desc')
+            ->get();
+
+        $pendingAnalysis = Batch::where('process_stage', 'lab')
+            ->doesntHave('labAnalysis')
+            ->with('productCode')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $recentAnalysis = LabAnalysis::with('batch', 'analyst')
+            ->orderBy('analyzed_at', 'desc')
+            ->take(10)
+            ->get();
+
+        return view('lab.dashboard', compact('stats', 'pendingReceive', 'pendingAnalysis', 'recentAnalysis'));
     }
 }

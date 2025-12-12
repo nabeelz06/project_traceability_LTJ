@@ -22,16 +22,21 @@ class DatabaseSeeder extends Seeder
         $this->command->info('📅 Date: ' . now()->format('d F Y H:i:s'));
         $this->command->info('');
 
-        // 1. Seed Product Codes
+        // 1. Seed Product Codes (7 original codes)
         $this->seedProductCodes();
 
-        // 2. Seed Partners
+        // 2. Seed Product Codes Baru (4 codes untuk mineral ikutan workflow)
+        $this->call([
+            NewProductCodesSeeder::class, 
+        ]);
+
+        // 3. Seed Partners
         $partners = $this->seedPartners();
 
-        // 3. Seed Users
+        // 4. Seed Users (termasuk 4 operator baru + 2 regulator)
         $users = $this->seedUsers($partners);
 
-        // 4. Seed 7 Batches dengan ~50 activity logs
+        // 5. Seed 7 Batches dengan ~50 activity logs
         $this->seed7BatchesWithDetailedFlow($users, $partners);
 
         $this->command->info('');
@@ -40,11 +45,11 @@ class DatabaseSeeder extends Seeder
     }
 
     /**
-     * Seed Product Codes
+     * Seed 7 Product Codes Original
      */
     private function seedProductCodes()
     {
-        $this->command->info('📦 Seeding product codes...');
+        $this->command->info('📦 Seeding original product codes...');
 
         $productCodes = [
             // UPSTREAM - Raw Material dari PT Timah
@@ -67,7 +72,7 @@ class DatabaseSeeder extends Seeder
                 'category' => 'Concentrated',
             ],
 
-            // MIDSTREAM - Purified Oxides
+            // MIDSTREAM - Purified Oxides (5 LTJ elements)
             [
                 'code' => 'MID-ND-OXI99',
                 'stage' => 'Midstream',
@@ -117,7 +122,7 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        $this->command->info('   ✓ Product codes: 7 kode produk');
+        $this->command->info('   ✓ Original product codes: 7 kode produk');
     }
 
     /**
@@ -129,7 +134,7 @@ class DatabaseSeeder extends Seeder
         
         $partners = [];
 
-        // UPSTREAM
+        // UPSTREAM Partners
         $partners['timah'] = Partner::updateOrCreate(
             ['name' => 'PT Timah Tbk'],
             [
@@ -137,7 +142,7 @@ class DatabaseSeeder extends Seeder
                 'pic_name' => 'Direktur Operasional PT Timah',
                 'pic_phone' => '021-5063800',
                 'address' => 'Jl. Jend. Sudirman Kav. 36, Jakarta Selatan',
-                'allowed_product_codes' => json_encode(['TIM-MON-RAW']),
+                'allowed_product_codes' => json_encode(['TIM-MON-RAW', 'MIN-IKUTAN']),
                 'status' => 'approved',
             ]
         );
@@ -178,7 +183,7 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        // END USER
+        // END USER Partners
         $partners['pertamina'] = Partner::updateOrCreate(
             ['name' => 'PT Pertamina (Persero)'],
             [
@@ -305,7 +310,7 @@ class DatabaseSeeder extends Seeder
     }
 
     /**
-     * Seed Users
+     * Seed Users (Updated - termasuk 4 operator + 2 regulator)
      */
     private function seedUsers($partners)
     {
@@ -313,45 +318,128 @@ class DatabaseSeeder extends Seeder
         
         $users = [];
 
+        // ===== ADMIN & SUPER ADMIN =====
         $users['superadmin'] = User::updateOrCreate(
-            ['email' => 'superadmin@timah.com'],
+            ['email' => 'superadmin@pttimah.com'],
             [
                 'name' => 'Super Administrator',
                 'username' => 'superadmin',
                 'password' => Hash::make('password'),
                 'role' => 'super_admin',
                 'partner_id' => null,
-                'phone' => '081234560001',
+                'phone' => '081234567890',
                 'is_active' => true,
             ]
         );
 
         $users['admin'] = User::updateOrCreate(
-            ['email' => 'admin@timah.com'],
+            ['email' => 'admin@pttimah.com'],
             [
                 'name' => 'Admin Operasional PT Timah',
-                'username' => 'admin',
+                'username' => 'admin.timah',
                 'password' => Hash::make('password'),
                 'role' => 'admin',
                 'partner_id' => null,
-                'phone' => '081234560002',
+                'phone' => '081234567891',
                 'is_active' => true,
             ]
         );
 
+        // ===== 4 OPERATOR BARU (MINERAL IKUTAN WORKFLOW) =====
+        $users['wet_operator'] = User::updateOrCreate(
+            ['email' => 'wet@pttimah.com'],
+            [
+                'name' => 'Operator Wet Process',
+                'username' => 'wet.operator',
+                'password' => Hash::make('password'),
+                'role' => 'wet_operator',
+                'partner_id' => $partners['timah']->id,
+                'phone' => '081234567801',
+                'is_active' => true,
+            ]
+        );
+
+        $users['dry_operator'] = User::updateOrCreate(
+            ['email' => 'dry@pttimah.com'],
+            [
+                'name' => 'Operator Dry Process',
+                'username' => 'dry.operator',
+                'password' => Hash::make('password'),
+                'role' => 'dry_operator',
+                'partner_id' => $partners['timah']->id,
+                'phone' => '081234567802',
+                'is_active' => true,
+            ]
+        );
+
+        $users['warehouse_operator'] = User::updateOrCreate(
+            ['email' => 'warehouse@pttimah.com'],
+            [
+                'name' => 'Operator Warehouse',
+                'username' => 'warehouse.operator',
+                'password' => Hash::make('password'),
+                'role' => 'warehouse_operator',
+                'partner_id' => $partners['timah']->id,
+                'phone' => '081234567803',
+                'is_active' => true,
+            ]
+        );
+
+        $users['lab_operator'] = User::updateOrCreate(
+            ['email' => 'lab@pttimah.com'],
+            [
+                'name' => 'Operator Lab/Project Plan',
+                'username' => 'lab.operator',
+                'password' => Hash::make('password'),
+                'role' => 'lab_operator',
+                'partner_id' => $partners['timah']->id,
+                'phone' => '081234567804',
+                'is_active' => true,
+            ]
+        );
+
+        // ===== REGULATOR (BIM & ESDM) =====
+        $users['regulator_bim'] = User::updateOrCreate(
+            ['email' => 'bim@esdm.go.id'],
+            [
+                'name' => 'Regulator BIM',
+                'username' => 'regulator.bim',
+                'password' => Hash::make('password'),
+                'role' => 'g_bim',
+                'partner_id' => null, // Government tidak terikat partner
+                'phone' => '081234567810',
+                'is_active' => true,
+            ]
+        );
+
+        $users['regulator_esdm'] = User::updateOrCreate(
+            ['email' => 'esdm@esdm.go.id'],
+            [
+                'name' => 'Regulator ESDM',
+                'username' => 'regulator.esdm',
+                'password' => Hash::make('password'),
+                'role' => 'g_esdm',
+                'partner_id' => null, // Government tidak terikat partner
+                'phone' => '081234567811',
+                'is_active' => true,
+            ]
+        );
+
+        // ===== ORIGINAL OPERATOR (RFID SCANNING) =====
         $users['operator_timah'] = User::updateOrCreate(
-            ['email' => 'operator@timah.com'],
+            ['email' => 'operator@pttimah.com'],
             [
                 'name' => 'Operator Lapangan PT Timah',
                 'username' => 'operator.timah',
                 'password' => Hash::make('password'),
                 'role' => 'operator',
-                'partner_id' => null,
-                'phone' => '081234560010',
+                'partner_id' => $partners['timah']->id,
+                'phone' => '081234567892',
                 'is_active' => true,
             ]
         );
 
+        // ===== END USER PARTNERS =====
         $users['user_rekacipta'] = User::updateOrCreate(
             ['email' => 'user@rekacipta.com'],
             [
@@ -470,7 +558,7 @@ class DatabaseSeeder extends Seeder
         );
 
         $users['auditor'] = User::updateOrCreate(
-            ['email' => 'auditor@timah.com'],
+            ['email' => 'auditor@pttimah.com'],
             [
                 'name' => 'Auditor Internal PT Timah',
                 'username' => 'auditor',
@@ -482,7 +570,7 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        $this->command->info('   ✓ Users: ' . count($users) . ' users');
+        $this->command->info('   ✓ Users: ' . count($users) . ' accounts');
 
         return $users;
     }
@@ -494,22 +582,14 @@ class DatabaseSeeder extends Seeder
     {
         $this->command->info('📦 Seeding 7 batches with detailed flow...');
 
-        // Base timestamp
         $baseDate = Carbon::create(2025, 11, 20, 8, 0, 0);
-
-        // Array untuk activities
         $allActivities = [];
 
-        // ======================================
-        // BATCH 1: Flow Lengkap
-        // ======================================
+        // ===== BATCH 1: Flow Lengkap =====
         $batch1 = Batch::create([
             'batch_code' => 'TIM-MON-20251120-001',
             'lot_number' => 'L-MON-20251120-001-A',
-            
-            // PERBAIKAN DISINI: Ganti 'product_code' menjadi 'product_code_id'
-            'product_code_id' => 1, // Mengacu pada ID TIM-MON-RAW
-            
+            'product_code_id' => 1, // TIM-MON-RAW
             'status' => 'delivered',
             'initial_weight' => 20000,
             'current_weight' => 2400,
@@ -527,18 +607,18 @@ class DatabaseSeeder extends Seeder
             'is_ready' => true,
         ]);
 
-        // ... (Log aktivitas Batch 1 biarkan tetap sama)
+        $allActivities[] = ['batch' => $batch1, 'timestamp' => $baseDate->copy(), 'action' => 'BATCH_CREATED', 'user' => $users['operator_timah'], 'notes' => 'Batch dibuat - 20T monasit dari PT Timah'];
+        $allActivities[] = ['batch' => $batch1, 'timestamp' => $baseDate->copy()->addHours(2), 'action' => 'RECEIVING_MATERIAL', 'user' => $users['user_rekacipta'], 'notes' => 'Diterima dari PT Timah. Input 3000 kg LTJ'];
+        $allActivities[] = ['batch' => $batch1, 'timestamp' => $baseDate->copy()->addDays(1)->addHours(5), 'action' => 'PRODUKSI_LTJ', 'user' => $users['user_rekacipta'], 'notes' => 'Input proses: 3000 kg LTJ (Batch 1)'];
+        $allActivities[] = ['batch' => $batch1, 'timestamp' => $baseDate->copy()->addDays(2)->addHours(3), 'action' => 'OUTPUT_PRODUKSI', 'user' => $users['user_rekacipta'], 'notes' => 'Output: 1200 kg Neodymium Oksida 99%'];
+        $allActivities[] = ['batch' => $batch1, 'timestamp' => $baseDate->copy()->addDays(3), 'action' => 'SHIPPING_PRODUCT', 'user' => $users['user_rekacipta'], 'notes' => 'Kirim 1.2T ke PT Dirgantara Indonesia'];
+        $allActivities[] = ['batch' => $batch1, 'timestamp' => $baseDate->copy()->addDays(4), 'action' => 'RECEIVING_END_USER', 'user' => $users['user_dirgantara'], 'notes' => 'Diterima 1.2T Neodymium untuk produksi komponen pesawat'];
 
-        // ======================================
-        // BATCH 2: Flow dengan Export Track
-        // ======================================
+        // ===== BATCH 2: Flow dengan Export Track =====
         $batch2 = Batch::create([
             'batch_code' => 'TIM-MON-20251120-002',
             'lot_number' => 'L-MON-20251120-002-B',
-            
-            // PERBAIKAN DISINI
             'product_code_id' => 1, // TIM-MON-RAW
-            
             'status' => 'delivered',
             'initial_weight' => 30000,
             'current_weight' => 1500,
@@ -556,18 +636,18 @@ class DatabaseSeeder extends Seeder
             'is_ready' => true,
         ]);
 
-        // ... (Log aktivitas Batch 2 tetap sama)
+        $allActivities[] = ['batch' => $batch2, 'timestamp' => $baseDate->copy()->addHours(1), 'action' => 'BATCH_CREATED', 'user' => $users['operator_timah'], 'notes' => 'Batch dibuat - 30T monasit mentah'];
+        $allActivities[] = ['batch' => $batch2, 'timestamp' => $baseDate->copy()->addDays(1), 'action' => 'RECEIVING_MATERIAL', 'user' => $users['user_len'], 'notes' => 'Diterima dari PT Timah. Input 3000 kg LTJ'];
+        $allActivities[] = ['batch' => $batch2, 'timestamp' => $baseDate->copy()->addDays(2)->addHours(2), 'action' => 'PRODUKSI_LTJ', 'user' => $users['user_len'], 'notes' => 'Proses: 3000 kg LTJ (Batch 2)'];
+        $allActivities[] = ['batch' => $batch2, 'timestamp' => $baseDate->copy()->addDays(3)->addHours(4), 'action' => 'OUTPUT_PRODUKSI', 'user' => $users['user_len'], 'notes' => 'Output: 1500 kg Yttrium Oksida'];
+        $allActivities[] = ['batch' => $batch2, 'timestamp' => $baseDate->copy()->addDays(4)->addHours(1), 'action' => 'SHIPPING_PRODUCT', 'user' => $users['user_len'], 'notes' => 'Kirim 1.5T ke NGK Busi Indonesia'];
+        $allActivities[] = ['batch' => $batch2, 'timestamp' => $baseDate->copy()->addDays(5), 'action' => 'RECEIVING_END_USER', 'user' => $users['user_ngk'], 'notes' => 'Diterima 1.5T Yttrium untuk produksi busi'];
 
-        // ======================================
-        // BATCH 3: Flow Kompleks
-        // ======================================
+        // ===== BATCH 3: Flow Kompleks =====
         $batch3 = Batch::create([
             'batch_code' => 'TIM-MON-20251120-003',
             'lot_number' => 'L-MON-20251120-003-C',
-            
-            // PERBAIKAN DISINI
             'product_code_id' => 1, // TIM-MON-RAW
-            
             'status' => 'processing',
             'initial_weight' => 50000,
             'current_weight' => 50000,
@@ -585,18 +665,14 @@ class DatabaseSeeder extends Seeder
             'is_ready' => false,
         ]);
 
-        // ... (Log aktivitas Batch 3 tetap sama)
+        $allActivities[] = ['batch' => $batch3, 'timestamp' => $baseDate->copy()->addHours(3), 'action' => 'BATCH_CREATED', 'user' => $users['operator_timah'], 'notes' => 'Batch dibuat - 50T monasit untuk processing'];
+        $allActivities[] = ['batch' => $batch3, 'timestamp' => $baseDate->copy()->addDays(1)->addHours(1), 'action' => 'IN_PROCESSING', 'user' => $users['operator_timah'], 'notes' => 'Masuk proses pemisahan LTJ (Batch 3)'];
 
-        // ======================================
-        // BATCH 4: Flow Processing -> Stocking
-        // ======================================
+        // ===== BATCH 4: Flow Processing -> Stocking =====
         $batch4 = Batch::create([
             'batch_code' => 'TIM-CER-20251120-004',
             'lot_number' => 'L-CER-20251120-004-D',
-            
-            // PERBAIKAN DISINI: Gunakan ID 4 untuk MID-CE-OXI99
             'product_code_id' => 4, // MID-CE-OXI99
-            
             'status' => 'ready',
             'initial_weight' => 30000,
             'current_weight' => 3600,
@@ -614,18 +690,16 @@ class DatabaseSeeder extends Seeder
             'is_ready' => true,
         ]);
 
-        // ... (Log aktivitas Batch 4 tetap sama)
+        $allActivities[] = ['batch' => $batch4, 'timestamp' => $baseDate->copy()->addHours(4), 'action' => 'BATCH_CREATED', 'user' => $users['operator_timah'], 'notes' => 'Batch dibuat - 30T untuk Pupuk Kujang'];
+        $allActivities[] = ['batch' => $batch4, 'timestamp' => $baseDate->copy()->addDays(1)->addHours(3), 'action' => 'RECEIVING_MATERIAL', 'user' => $users['user_pupuk'], 'notes' => 'Diterima 30T monasit. Input 3600 kg LTJ'];
+        $allActivities[] = ['batch' => $batch4, 'timestamp' => $baseDate->copy()->addDays(2)->addHours(2), 'action' => 'PRODUKSI_LTJ', 'user' => $users['user_pupuk'], 'notes' => 'Proses: 3600 kg LTJ -> Cerium Oksida'];
+        $allActivities[] = ['batch' => $batch4, 'timestamp' => $baseDate->copy()->addDays(3)->addHours(1), 'action' => 'STOCKING_PRODUK', 'user' => $users['user_pupuk'], 'notes' => 'Output: 3.6T Cerium Oksida ready'];
 
-        // ======================================
-        // BATCH 5: Flow Export -> Produksi Baterai
-        // ======================================
+        // ===== BATCH 5: Flow Export -> Produksi Baterai =====
         $batch5 = Batch::create([
             'batch_code' => 'TIM-MON-20251120-005',
             'lot_number' => 'L-MON-20251120-005-E',
-            
-            // PERBAIKAN DISINI
             'product_code_id' => 1, // TIM-MON-RAW
-            
             'status' => 'delivered',
             'initial_weight' => 25000,
             'current_weight' => 3500,
@@ -643,18 +717,16 @@ class DatabaseSeeder extends Seeder
             'is_ready' => true,
         ]);
 
-        // ... (Log aktivitas Batch 5 tetap sama)
+        $allActivities[] = ['batch' => $batch5, 'timestamp' => $baseDate->copy()->addHours(5), 'action' => 'BATCH_CREATED', 'user' => $users['operator_timah'], 'notes' => 'Batch dibuat - 25T untuk Siemens'];
+        $allActivities[] = ['batch' => $batch5, 'timestamp' => $baseDate->copy()->addDays(1)->addHours(4), 'action' => 'RECEIVING_MATERIAL', 'user' => $users['user_siemens'], 'notes' => 'Diterima 25T monasit. Input 3500 kg LTJ'];
+        $allActivities[] = ['batch' => $batch5, 'timestamp' => $baseDate->copy()->addDays(2)->addHours(1), 'action' => 'PRODUKSI_LTJ', 'user' => $users['user_siemens'], 'notes' => 'Proses: 3500 kg LTJ untuk baterai'];
+        $allActivities[] = ['batch' => $batch5, 'timestamp' => $baseDate->copy()->addDays(3)->addHours(3), 'action' => 'OUTPUT_PRODUKSI', 'user' => $users['user_siemens'], 'notes' => 'Output: 3.5T material baterai'];
 
-        // ======================================
-        // BATCH 6: Flow Processing Magnet
-        // ======================================
+        // ===== BATCH 6: Flow Processing Magnet =====
         $batch6 = Batch::create([
             'batch_code' => 'TIM-NEO-20251120-006',
             'lot_number' => 'L-NEO-20251120-006-F',
-            
-            // PERBAIKAN DISINI: Gunakan ID 3 untuk MID-ND-OXI99
             'product_code_id' => 3, // MID-ND-OXI99
-            
             'status' => 'delivered',
             'initial_weight' => 15000,
             'current_weight' => 3000,
@@ -672,18 +744,18 @@ class DatabaseSeeder extends Seeder
             'is_ready' => true,
         ]);
 
-        // ... (Log aktivitas Batch 6 tetap sama)
+        $allActivities[] = ['batch' => $batch6, 'timestamp' => $baseDate->copy()->addHours(6), 'action' => 'BATCH_CREATED', 'user' => $users['operator_timah'], 'notes' => 'Batch dibuat - 15T untuk Astra'];
+        $allActivities[] = ['batch' => $batch6, 'timestamp' => $baseDate->copy()->addDays(1)->addHours(2), 'action' => 'RECEIVING_MATERIAL', 'user' => $users['user_astra'], 'notes' => 'Diterima 15T monasit. Input 3000 kg LTJ'];
+        $allActivities[] = ['batch' => $batch6, 'timestamp' => $baseDate->copy()->addDays(2)->addHours(4), 'action' => 'PRODUKSI_LTJ', 'user' => $users['user_astra'], 'notes' => 'Proses: 3000 kg LTJ -> Neodymium Oksida'];
+        $allActivities[] = ['batch' => $batch6, 'timestamp' => $baseDate->copy()->addDays(3)->addHours(2), 'action' => 'OUTPUT_PRODUKSI', 'user' => $users['user_astra'], 'notes' => 'Output: 3T Neodymium untuk magnet'];
+        $allActivities[] = ['batch' => $batch6, 'timestamp' => $baseDate->copy()->addDays(4)->addHours(2), 'action' => 'SHIPPING_PRODUCT', 'user' => $users['user_astra'], 'notes' => 'Kirim 3T ke Denso Indonesia'];
+        $allActivities[] = ['batch' => $batch6, 'timestamp' => $baseDate->copy()->addDays(5)->addHours(1), 'action' => 'RECEIVING_END_USER', 'user' => $users['user_denso'], 'notes' => 'Diterima 3T untuk produksi komponen otomotif'];
 
-        // ======================================
-        // BATCH 7: Flow Processing -> Ekspor Produk
-        // ======================================
+        // ===== BATCH 7: Flow Processing -> Ekspor Produk =====
         $batch7 = Batch::create([
             'batch_code' => 'TIM-MON-20251120-007',
             'lot_number' => 'L-MON-20251120-007-G',
-            
-            // PERBAIKAN DISINI
             'product_code_id' => 1, // TIM-MON-RAW
-            
             'status' => 'delivered',
             'initial_weight' => 30000,
             'current_weight' => 2400,
@@ -706,12 +778,12 @@ class DatabaseSeeder extends Seeder
         $allActivities[] = ['batch' => $batch7, 'timestamp' => $baseDate->copy()->addDays(3)->addHours(5), 'action' => 'STOCKING_PRODUK', 'user' => $users['user_rekacipta'], 'notes' => 'Output: 1400 kg. Stok produk jadi'];
         $allActivities[] = ['batch' => $batch7, 'timestamp' => $baseDate->copy()->addDays(4)->addHours(5), 'action' => 'RECEIVING_END_USER', 'user' => $users['user_ngk'], 'notes' => 'Stok 1.4T produk jadi. Batch selesai'];
 
-        // Sort by timestamp
+        // Sort activities by timestamp
         usort($allActivities, function($a, $b) {
             return $a['timestamp']->timestamp - $b['timestamp']->timestamp;
         });
 
-        // Create logs
+        // Create batch logs
         $logCount = 0;
         foreach ($allActivities as $activity) {
             BatchLog::create([
@@ -730,14 +802,6 @@ class DatabaseSeeder extends Seeder
     }
 
     /**
-     * Helper: Create batch
-     */
-    private function createBatch($data)
-    {
-        return Batch::create($data);
-    }
-
-    /**
      * Print summary
      */
     private function printSummary()
@@ -748,28 +812,38 @@ class DatabaseSeeder extends Seeder
         $this->command->info('========================================');
         $this->command->info('');
         $this->command->info('🏢 PT TIMAH (Internal):');
-        $this->command->info('  Super Admin  : superadmin@timah.com');
-        $this->command->info('  Admin        : admin@timah.com');
-        $this->command->info('  Operator     : operator@timah.com');
-        $this->command->info('  Auditor      : auditor@timah.com');
+        $this->command->info('  Super Admin       : superadmin@pttimah.com');
+        $this->command->info('  Admin             : admin@pttimah.com');
+        $this->command->info('  Operator          : operator@pttimah.com');
+        $this->command->info('  Auditor           : auditor@pttimah.com');
+        $this->command->info('');
+        $this->command->info('🔧 MINERAL IKUTAN OPERATORS:');
+        $this->command->info('  Wet Process       : wet@pttimah.com');
+        $this->command->info('  Dry Process       : dry@pttimah.com');
+        $this->command->info('  Warehouse         : warehouse@pttimah.com');
+        $this->command->info('  Lab/Project Plan  : lab@pttimah.com');
+        $this->command->info('');
+        $this->command->info('🏛️ REGULATOR:');
+        $this->command->info('  BIM               : bim@esdm.go.id');
+        $this->command->info('  ESDM              : esdm@esdm.go.id');
         $this->command->info('');
         $this->command->info('👥 END USER:');
-        $this->command->info('  PT Rekacipta : user@rekacipta.com');
-        $this->command->info('  PT Len       : user@len.co.id');
-        $this->command->info('  PT Pupuk     : user@pupukkujang.com');
-        $this->command->info('  PT Pindad    : user@pindad.com');
-        $this->command->info('  PT Dirgantara: user@indonesian-aerospace.com');
-        $this->command->info('  Denso        : user@denso.co.id');
-        $this->command->info('  Astra        : user@astraotoparts.com');
-        $this->command->info('  NGK Busi     : user@ngkbusi.co.id');
-        $this->command->info('  Siemens      : user@siemens.com');
+        $this->command->info('  PT Rekacipta      : user@rekacipta.com');
+        $this->command->info('  PT Len            : user@len.co.id');
+        $this->command->info('  PT Pupuk Kujang   : user@pupukkujang.com');
+        $this->command->info('  PT Pindad         : user@pindad.com');
+        $this->command->info('  PT Dirgantara     : user@indonesian-aerospace.com');
+        $this->command->info('  Denso             : user@denso.co.id');
+        $this->command->info('  Astra Otoparts    : user@astraotoparts.com');
+        $this->command->info('  NGK Busi          : user@ngkbusi.co.id');
+        $this->command->info('  Siemens           : user@siemens.com');
         $this->command->info('========================================');
         $this->command->info('');
         $this->command->info('📊 DATABASE SUMMARY:');
-        $this->command->info('  ✓ 7 Product Codes');
+        $this->command->info('  ✓ 11 Product Codes (7 original + 4 new)');
         $this->command->info('  ✓ 14 Partners (4 upstream + 10 end users)');
-        $this->command->info('  ✓ 13 Users (multi-role)');
-        $this->command->info('  ✓ 7 Batches dengan ~40 activity logs');
+        $this->command->info('  ✓ 19 Users (4 operators + 2 regulators + 13 others)');
+        $this->command->info('  ✓ 7 Batches dengan activity logs');
         $this->command->info('========================================');
         $this->command->info('');
         $this->command->info('🚀 Ready! Login at: http://localhost:8000');

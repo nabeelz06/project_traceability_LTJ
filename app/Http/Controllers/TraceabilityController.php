@@ -39,7 +39,7 @@ class TraceabilityController extends Controller
     public function tree(Batch $batch)
     {
         $tree = $this->traceabilityService->buildFullTree($batch);
-        
+
         return view('traceability.tree', compact('batch', 'tree'));
     }
 
@@ -49,7 +49,7 @@ class TraceabilityController extends Controller
     public function getTree(Batch $batch)
     {
         $tree = $this->traceabilityService->buildFullTree($batch);
-        
+
         return response()->json([
             'success' => true,
             'tree' => $tree,
@@ -62,7 +62,7 @@ class TraceabilityController extends Controller
     public function getChain(Batch $batch)
     {
         $chain = $this->traceabilityService->getFullChain($batch);
-        
+
         return response()->json([
             'success' => true,
             'chain' => $chain,

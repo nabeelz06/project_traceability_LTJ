@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Schema; // DIPINDAHKAN KE SINI (PALING ATAS)
+use Illuminate\Support\Facades\Schema;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\DashboardController;
@@ -15,6 +15,14 @@ use App\Http\Controllers\ShipmentController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TraceabilityController;
 use App\Http\Controllers\MitraBatchController;
+
+// Import Controller Khusus Operator
+use App\Http\Controllers\WetProcessController;
+use App\Http\Controllers\DryProcessController;
+use App\Http\Controllers\WarehouseController;
+use App\Http\Controllers\LabController;
+use App\Http\Controllers\RegulatorController;
+use App\Http\Controllers\PDFReportController;
 
 // Guest Routes
 Route::middleware('guest')->group(function () {
@@ -36,6 +44,8 @@ Route::middleware('guest')->group(function () {
 Route::middleware(['auth', 'user.active'])->group(function () {
     
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+    
+    // Dashboard Utama (Admin/Super Admin)
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     
     Route::get('/profile', [AuthController::class, 'profile'])->name('profile');
@@ -46,6 +56,7 @@ Route::middleware(['auth', 'user.active'])->group(function () {
     Route::get('/traceability/tree/{batch}', [TraceabilityController::class, 'tree'])->name('traceability.tree');
     Route::get('/traceability/chain/{batch}', [TraceabilityController::class, 'getChain'])->name('traceability.chain');
     
+    // Role: Super Admin & Admin
     Route::middleware('role:super_admin,admin')->group(function () {
         Route::get('batches/create', [BatchController::class, 'create'])->name('batches.create');
         Route::post('batches', [BatchController::class, 'store'])->name('batches.store');
@@ -54,14 +65,17 @@ Route::middleware(['auth', 'user.active'])->group(function () {
         Route::put('batches/{batch}/mark-ready', [BatchController::class, 'markReady'])->name('batches.mark-ready');
         Route::post('batches/{batch}/write-rfid', [BatchController::class, 'writeRfid'])->name('batches.write-rfid');
         Route::post('batches/{batch}/verify-rfid', [BatchController::class, 'verifyRfid'])->name('batches.verify-rfid');
+        Route::delete('batches/{batch}', [BatchController::class, 'destroy'])->name('batches.destroy');
         
         Route::resource('shipments', ShipmentController::class);
         Route::get('reports/operational', [ReportController::class, 'operational'])->name('reports.operational');
     });
     
+    // General Batch Access
     Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
     Route::get('batches/{batch}', [BatchController::class, 'show'])->name('batches.show');
     
+    // Role: Super Admin Only
     Route::middleware('role:super_admin')->prefix('admin')->name('admin.')->group(function () {
         Route::resource('users', UserController::class);
         Route::post('users/{user}/toggle-status', [UserController::class, 'toggleStatus'])->name('users.toggle-status');
@@ -85,6 +99,7 @@ Route::middleware(['auth', 'user.active'])->group(function () {
         Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
     });
     
+    // Role: Operator Lapangan (RFID Scan)
     Route::middleware('role:operator')->prefix('scan')->name('scan.')->group(function () {
         Route::get('/', [ScanController::class, 'index'])->name('index');
         Route::get('checkout', [ScanController::class, 'showCheckout'])->name('checkout');
@@ -94,7 +109,48 @@ Route::middleware(['auth', 'user.active'])->group(function () {
         Route::get('tasks', [ScanController::class, 'tasks'])->name('tasks');
         Route::get('history', [ScanController::class, 'history'])->name('history');
     });
-    
+
+    // Wet Process Routes
+    Route::middleware('role:wet_operator')->prefix('wet-process')->name('wet-process.')->group(function () {
+        Route::get('dashboard', [WetProcessController::class, 'dashboard'])->name('dashboard');
+        Route::get('batches/create', [WetProcessController::class, 'create'])->name('create');
+        Route::post('batches', [WetProcessController::class, 'store'])->name('store');
+        Route::get('pending-dispatch', [WetProcessController::class, 'pendingDispatch'])->name('pending-dispatch');
+        Route::post('batches/{batch}/dispatch', [WetProcessController::class, 'dispatch'])->name('dispatch');
+    });
+
+    // Dry Process Routes
+    Route::middleware('role:dry_operator')->prefix('dry-process')->name('dry-process.')->group(function () {
+        Route::get('dashboard', [DryProcessController::class, 'dashboard'])->name('dashboard');
+        Route::post('batches/{batch}/receive', [DryProcessController::class, 'receive'])->name('receive');
+        Route::post('batches/{batch}/stock', [DryProcessController::class, 'stock'])->name('stock');
+        Route::post('batches/{batch}/retrieve', [DryProcessController::class, 'retrieve'])->name('retrieve');
+        Route::get('batches/{batch}/process', [DryProcessController::class, 'processForm'])->name('process-form');
+        Route::post('batches/{batch}/process', [DryProcessController::class, 'process'])->name('process');
+        Route::post('batches/{batch}/dispatch-warehouse', [DryProcessController::class, 'dispatchToWarehouse'])->name('dispatch-warehouse');
+    });
+
+    // Warehouse Routes
+    Route::middleware('role:warehouse_operator')->prefix('warehouse')->name('warehouse.')->group(function () {
+        Route::get('dashboard', [WarehouseController::class, 'dashboard'])->name('dashboard');
+        Route::post('batches/{batch}/receive', [WarehouseController::class, 'receive'])->name('receive');
+        Route::get('batches/{batch}/export', [WarehouseController::class, 'exportForm'])->name('export-form');
+        Route::post('batches/{batch}/export', [WarehouseController::class, 'exportBatch'])->name('export');
+        Route::get('batches/{batch}/split-lab', [WarehouseController::class, 'splitForm'])->name('split-lab-form');
+        Route::post('batches/{batch}/split-lab', [WarehouseController::class, 'splitForLab'])->name('split-lab');
+        Route::post('batches/{batch}/dispatch-lab', [WarehouseController::class, 'dispatchToLab'])->name('dispatch-lab');
+    });
+
+    // Lab Routes
+    Route::middleware('role:lab_operator')->prefix('lab')->name('lab.')->group(function () {
+        Route::get('dashboard', [LabController::class, 'dashboard'])->name('dashboard');
+        Route::post('batches/{batch}/receive', [LabController::class, 'receive'])->name('receive');
+        Route::get('batches/{batch}/analysis', [LabController::class, 'analysisForm'])->name('analysis-form');
+        Route::post('batches/{batch}/analysis', [LabController::class, 'storeAnalysis'])->name('store-analysis');
+        Route::get('batches/{batch}/view-analysis', [LabController::class, 'viewAnalysis'])->name('view-analysis');
+    });
+
+    // Mitra Middlestream Routes
     Route::middleware('role:mitra_middlestream')->prefix('mitra')->name('mitra.')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'mitraDashboard'])->name('dashboard');
         Route::post('batches/{batch}/checkin', [MitraBatchController::class, 'mitraCheckin'])->name('batches.checkin');
@@ -105,54 +161,43 @@ Route::middleware(['auth', 'user.active'])->group(function () {
         Route::get('reports', [ReportController::class, 'mitraReports'])->name('reports');
     });
     
+    // Mitra Downstream Routes
     Route::middleware('role:mitra_downstream')->prefix('downstream')->name('downstream.')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'downstreamDashboard'])->name('dashboard');
         Route::post('batches/{batch}/checkin-final', [MitraBatchController::class, 'downstreamCheckin'])->name('batches.checkin-final');
         Route::get('batches', [BatchController::class, 'index'])->name('batches.index');
     });
     
-    Route::middleware('role:auditor')->prefix('audit')->name('audit.')->group(function () {
+    // Auditor Routes
+    Route::middleware('role:auditor,g_bim,g_esdm')->prefix('audit')->name('audit.')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'auditDashboard'])->name('dashboard');
         Route::get('logs/batch', [ReportController::class, 'batchLogs'])->name('logs.batch');
         Route::get('logs/system', [ReportController::class, 'systemLogs'])->name('logs.system');
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('reports/export', [ReportController::class, 'export'])->name('reports.export');
     });
+
+    // Regulator Routes (BIM & ESDM)
+    Route::middleware('role:g_bim,g_esdm')->prefix('regulator')->name('regulator.')->group(function () {
+        Route::get('dashboard', [RegulatorController::class, 'dashboard'])->name('dashboard');
+        Route::get('batch/{id}', [RegulatorController::class, 'showBatch'])->name('batch.show'); 
+        Route::get('report/download', [PDFReportController::class, 'generateRegulatorReport'])->name('report.download');
+    });
 });
 
-// --- EMERGENCY DB CLEANER ---
-// Import sudah dipindahkan ke atas, jadi di sini tidak perlu ada use lagi.
-
+// Emergency DB Cleaner (Development Only - Remove in Production)
 Route::get('/force-reset-db', function () {
-    // Disable foreign key checks to allow dropping tables in any order (optional, but safer)
-    // Note: Nile might strict on this, so we rely on order mostly.
-    
     $tables = [
-        'system_logs',
-        'shipments',
-        'rfid_writes',
-        'documents',
-        'batch_logs',
-        'batches',       
-        'devices',
-        'product_codes', 
-        'users',         
-        'partners',      
-        'personal_access_tokens',
-        'password_reset_tokens',
-        'jobs',
-        'job_batches',
-        'failed_jobs',
-        'cache',
-        'cache_locks',
-        'sessions',
-        'migrations', // <--- Tabel biang kerok error Anda ada di sini
+        'system_logs', 'shipments', 'rfid_writes', 'documents', 'batch_logs',
+        'batches', 'devices', 'product_codes', 'users', 'partners',
+        'personal_access_tokens', 'password_reset_tokens', 'jobs', 'job_batches',
+        'failed_jobs', 'cache', 'cache_locks', 'sessions', 'migrations',
     ];
 
     $log = [];
     foreach ($tables as $table) {
         if (Schema::hasTable($table)) {
-            Schema::drop($table); // Drop biasa, bukan cascade
+            Schema::drop($table);
             $log[] = "Dropped: $table";
         } else {
             $log[] = "Skipped (not found): $table";
