@@ -26,9 +26,9 @@ class DatabaseSeeder extends Seeder
         $this->seedProductCodes();
 
         // 2. Seed Product Codes Baru (4 codes untuk mineral ikutan workflow)
-        $this->call([
-            NewProductCodesSeeder::class, 
-        ]);
+        // $this->call([
+        //     NewProductCodesSeeder::class, 
+        // ]);
 
         // 3. Seed Partners
         $partners = $this->seedPartners();
