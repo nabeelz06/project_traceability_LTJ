@@ -201,7 +201,7 @@ class DryProcessController extends Controller
                 ['material' => 'ZIRCON', 'spec' => 'CON'],
                 [
                     'code' => 'DRY-ZIRCON-CON',
-                    'stage' => 'middlestream',
+                    'stage' => 'Midstream',
                     'description' => 'Zircon Concentrate from Dry Process',
                     'category' => 'concentrate'
                 ]
@@ -211,7 +211,7 @@ class DryProcessController extends Controller
                 ['material' => 'ILMENITE', 'spec' => 'CON'],
                 [
                     'code' => 'DRY-ILMENITE-CON',
-                    'stage' => 'middlestream',
+                    'stage' => 'Midstream',
                     'description' => 'Ilmenite Concentrate from Dry Process',
                     'category' => 'concentrate'
                 ]
@@ -221,7 +221,7 @@ class DryProcessController extends Controller
                 ['material' => 'MON', 'spec' => 'CON'],
                 [
                     'code' => 'DRY-MON-CON',
-                    'stage' => 'middlestream',
+                    'stage' => 'Midstream',
                     'description' => 'Monasit Concentrate from Dry Process',
                     'category' => 'concentrate'
                 ]
