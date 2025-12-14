@@ -44,21 +44,23 @@ class LabController extends Controller
         ];
 
         // Pending receive - Batches dari warehouse split (MON samples)
+        // FIXED: Use 'parentBatch' instead of 'parent'
         $pendingReceive = Batch::where('is_split', true)
             ->where('process_stage', 'warehouse')
             ->where('status', 'ready')
             ->whereHas('productCode', function($q) {
                 $q->where('material', 'MON');
             })
-            ->with(['productCode', 'parent'])
+            ->with(['productCode', 'parentBatch']) // ✅ FIXED!
             ->orderBy('created_at', 'desc')
             ->get();
 
         // Pending analysis - Sudah received, belum dianalisis
+        // FIXED: Use 'parentBatch' instead of 'parent'
         $pendingAnalysis = Batch::where('process_stage', 'lab')
             ->where('status', 'received')
             ->doesntHave('labAnalysis')
-            ->with(['productCode', 'parent'])
+            ->with(['productCode', 'parentBatch']) // ✅ FIXED!
             ->orderBy('updated_at', 'desc')
             ->get();
 
@@ -294,7 +296,7 @@ class LabController extends Controller
                 'color' => '#9b59b6', // Purple
             ],
         ])->filter(function($item) {
-            return $item['percentage'] > 0; // Only show elements with content
+            return $item['percentage'] > 0;
         });
 
         return view('lab.view-analysis', compact('batch', 'analysis', 'composition'));

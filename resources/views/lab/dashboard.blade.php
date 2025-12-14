@@ -169,7 +169,7 @@
                 @foreach($pendingReceive as $batch)
                 <tr>
                     <td><strong>{{ $batch->batch_code }}</strong></td>
-                    <td>{{ $batch->parent->batch_code ?? '-' }}</td>
+                    <td>{{ $batch->parentBatch->batch_code ?? '-' }}</td>
                     <td>{{ number_format($batch->current_weight, 2) }}</td>
                     <td>
                         <span class="badge badge-warning">{{ $batch->current_location }}</span>
