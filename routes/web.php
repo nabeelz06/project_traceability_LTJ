@@ -141,13 +141,22 @@ Route::middleware(['auth', 'user.active'])->group(function () {
         Route::post('batches/{batch}/dispatch-lab', [WarehouseController::class, 'dispatchToLab'])->name('dispatch-lab');
     });
 
-    // Lab Routes
-    Route::middleware('role:lab_operator')->prefix('lab')->name('lab.')->group(function () {
+    // Lab routes
+    Route::middleware(['auth', 'role:lab_operator'])->prefix('lab')->name('lab.')->group(function () {
         Route::get('dashboard', [LabController::class, 'dashboard'])->name('dashboard');
-        Route::post('batches/{batch}/receive', [LabController::class, 'receive'])->name('receive');
-        Route::get('batches/{batch}/analysis', [LabController::class, 'analysisForm'])->name('analysis-form');
-        Route::post('batches/{batch}/analysis', [LabController::class, 'storeAnalysis'])->name('store-analysis');
-        Route::get('batches/{batch}/view-analysis', [LabController::class, 'viewAnalysis'])->name('view-analysis');
+        
+        // Receive sample dari warehouse
+        Route::post('batch/{batch}/receive', [LabController::class, 'receive'])->name('batch.receive');
+        
+        // Analysis workflow
+        Route::get('batch/{batch}/analyze', [LabController::class, 'analysisForm'])->name('batch.analyze-form');
+        Route::post('batch/{batch}/analyze', [LabController::class, 'storeAnalysis'])->name('batch.analyze');
+        
+        // View analysis result
+        Route::get('batch/{batch}/view-analysis', [LabController::class, 'viewAnalysis'])->name('view-analysis');
+        
+        // List all analyses (reporting)
+        Route::get('analyses', [LabController::class, 'listAnalyses'])->name('analyses.list');
     });
 
     // Mitra Middlestream Routes
