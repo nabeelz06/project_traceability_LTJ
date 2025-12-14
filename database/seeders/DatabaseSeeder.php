@@ -400,7 +400,7 @@ class DatabaseSeeder extends Seeder
 
         // ===== REGULATOR (BIM & ESDM) =====
         $users['regulator_bim'] = User::updateOrCreate(
-            ['email' => 'bim@esdm.go.id'],
+            ['email' => 'bim@regulator.com'],
             [
                 'name' => 'Regulator BIM',
                 'username' => 'regulator.bim',
@@ -413,7 +413,7 @@ class DatabaseSeeder extends Seeder
         );
 
         $users['regulator_esdm'] = User::updateOrCreate(
-            ['email' => 'esdm@esdm.go.id'],
+            ['email' => 'esdm@regulator.com'],
             [
                 'name' => 'Regulator ESDM',
                 'username' => 'regulator.esdm',
@@ -824,8 +824,8 @@ class DatabaseSeeder extends Seeder
         $this->command->info('  Lab/Project Plan  : lab@pttimah.com');
         $this->command->info('');
         $this->command->info('🏛️ REGULATOR:');
-        $this->command->info('  BIM               : bim@esdm.go.id');
-        $this->command->info('  ESDM              : esdm@esdm.go.id');
+        $this->command->info('  BIM               : bim@regulator.com');
+        $this->command->info('  ESDM              : esdm@regulator.com');
         $this->command->info('');
         $this->command->info('👥 END USER:');
         $this->command->info('  PT Rekacipta      : user@rekacipta.com');
