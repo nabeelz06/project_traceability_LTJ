@@ -18,7 +18,7 @@ class WetProcessController extends Controller
         $this->checkpointService = $checkpointService;
     }
 
-    // Dashboard Wet Process
+    /* Dashboard Wet Process */
     public function dashboard()
     {
         $stats = [
@@ -29,7 +29,7 @@ class WetProcessController extends Controller
                 ->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()])
                 ->count(),
             'pending_dispatch' => Batch::where('process_stage', 'wet_process')
-                ->where('current_checkpoint', null)
+                ->where('status', 'created')
                 ->count(),
             'total_weight_today' => Batch::where('process_stage', 'wet_process')
                 ->whereDate('created_at', today())
@@ -45,7 +45,7 @@ class WetProcessController extends Controller
         return view('wet-process.dashboard', compact('stats', 'recentBatches'));
     }
 
-    // Form create batch (Mineral Ikutan)
+    /* Form create batch (Mineral Ikutan) */
     public function create()
     {
         // Get product code untuk Mineral Ikutan
@@ -56,12 +56,12 @@ class WetProcessController extends Controller
         return view('wet-process.create-batch', compact('productCodes'));
     }
 
-    // Store batch baru
+    /* Store batch baru */
     public function store(Request $request)
     {
         $validated = $request->validate([
             'product_code_id' => 'required|exists:product_codes,id',
-            'weight' => 'required|numeric|min:900|max:1100', // 0.9 - 1.1 ton = 900-1100 kg
+            'weight' => 'required|numeric|min:900|max:1100',
             'origin_location' => 'required|string|max:255',
             'container_code' => 'nullable|string|max:50',
             'keterangan' => 'nullable|string',
@@ -79,15 +79,21 @@ class WetProcessController extends Controller
                 'initial_weight' => $validated['weight'],
                 'current_weight' => $validated['weight'],
                 'weight_unit' => 'kg',
-                'tonase' => $validated['weight'] / 1000, // Convert to ton
+                'tonase' => $validated['weight'] / 1000,
                 'origin_location' => $validated['origin_location'],
                 'current_location' => $validated['origin_location'],
                 'container_code' => $validated['container_code'],
                 'keterangan' => $validated['keterangan'],
                 'status' => 'created',
                 'process_stage' => 'wet_process',
-                'checkpoint_status' => 'pending',
                 'created_by' => Auth::id(),
+            ]);
+
+            // Log activity
+            $batch->logs()->create([
+                'action' => 'BATCH_CREATED',
+                'actor_user_id' => Auth::id(),
+                'notes' => "Batch created at Wet Process: {$batch->initial_weight} kg",
             ]);
 
             DB::commit();
@@ -112,7 +118,14 @@ class WetProcessController extends Controller
         ]);
 
         try {
-            // Prepare GPS data (optional)
+            DB::beginTransaction();
+
+            // Validate batch ready
+            if ($batch->status !== 'created') {
+                throw new \Exception('Batch tidak ready untuk dispatch');
+            }
+
+            // Prepare GPS data
             $gps = null;
             if (!empty($validated['gps_latitude']) && !empty($validated['gps_longitude'])) {
                 $gps = [
@@ -127,28 +140,39 @@ class WetProcessController extends Controller
                 'CP1',
                 Auth::id(),
                 $validated['notes'] ?? "Dispatch ke Dry Process",
-                $gps // Pass GPS or null
+                $gps
             );
 
+            // Update batch
             $batch->update([
-                'status' => 'in_transit',
+                'status' => 'dispatched',
                 'current_location' => 'In Transit to Dry Process',
             ]);
 
+            // Log activity
+            $batch->logs()->create([
+                'action' => 'DISPATCH_TO_DRY',
+                'actor_user_id' => Auth::id(),
+                'notes' => "Dispatched to Dry Process: {$batch->current_weight} kg",
+            ]);
+
+            DB::commit();
+
             return redirect()
                 ->route('wet-process.dashboard')
-                ->with('success', "Batch {$batch->batch_code} berhasil di-dispatch (CP1)");
+                ->with('success', "Batch {$batch->batch_code} berhasil di-dispatch ke Dry Process (CP1)");
 
         } catch (\Exception $e) {
+            DB::rollBack();
             return back()->withErrors(['error' => 'Gagal dispatch batch: ' . $e->getMessage()]);
         }
     }
 
-    // List batches pending dispatch
+    /* List batches pending dispatch */
     public function pendingDispatch()
     {
         $batches = Batch::where('process_stage', 'wet_process')
-            ->whereNull('current_checkpoint')
+            ->where('status', 'created')
             ->with('productCode')
             ->orderBy('created_at', 'desc')
             ->paginate(20);
