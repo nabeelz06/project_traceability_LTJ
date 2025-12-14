@@ -97,15 +97,6 @@
         background: rgba(62,92,116,0.03);
     }
 
-    .debug-box {
-        background: #fff3cd;
-        border: 2px solid #ffc107;
-        border-radius: 8px;
-        padding: 1rem;
-        margin-bottom: 1.5rem;
-        font-size: 0.9rem;
-    }
-
     @media (max-width: 992px) {
         .kpi-container { flex-wrap: wrap; }
         .kpi-card { flex: 1 1 calc(50% - 0.5rem); }
@@ -119,22 +110,6 @@
         </h2>
         <span style="color: rgba(62,92,116,0.6);">{{ now()->format('l, d F Y') }}</span>
     </div>
-
-    <!-- DEBUG MODE (HAPUS SETELAH TESTING) -->
-    @php
-    $debugMode = true; // Set false setelah berhasil
-    if ($debugMode) {
-        $allSplitBatches = \App\Models\Batch::where('is_split', true)->with('productCode')->get();
-        echo "<div class='debug-box'>";
-        echo "<strong>🔍 DEBUG MODE:</strong><br>";
-        echo "Total split batches: " . $allSplitBatches->count() . "<br>";
-        foreach ($allSplitBatches as $b) {
-            echo "- {$b->batch_code}: status={$b->status}, process_stage={$b->process_stage}, ";
-            echo "material=" . ($b->productCode ? $b->productCode->material : 'NULL') . "<br>";
-        }
-        echo "</div>";
-    }
-    @endphp
 
     <!-- KPI Cards -->
     <div class="kpi-container">
@@ -194,13 +169,13 @@
                 @foreach($pendingReceive as $batch)
                 <tr>
                     <td><strong>{{ $batch->batch_code }}</strong></td>
-                    <td>{{ $batch->splitParent->batch_code ?? '-' }}</td>
+                    <td>{{ $batch->parent->batch_code ?? '-' }}</td>
                     <td>{{ number_format($batch->current_weight, 2) }}</td>
                     <td>
                         <span class="badge badge-warning">{{ $batch->current_location }}</span>
                     </td>
                     <td>
-                        <form action="{{ route('lab.receive', $batch) }}" method="POST" style="display: inline;">
+                        <form action="{{ route('lab.batch.receive', $batch) }}" method="POST" style="display: inline;">
                             @csrf
                             <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Konfirmasi penerimaan batch {{ $batch->batch_code }}?')">
                                 <i class="bi bi-check-circle"></i> Receive (CP5)
@@ -252,7 +227,7 @@
                     <td>{{ number_format($batch->current_weight, 2) }}</td>
                     <td>{{ $batch->updated_at->format('d M Y H:i') }}</td>
                     <td>
-                        <a href="{{ route('lab.analysis-form', $batch) }}" class="btn btn-sm btn-primary">
+                        <a href="{{ route('lab.batch.analyze-form', $batch) }}" class="btn btn-sm btn-primary">
                             <i class="bi bi-microscope"></i> Analisis Kandungan LTJ
                         </a>
                     </td>
