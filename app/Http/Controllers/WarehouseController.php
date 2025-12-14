@@ -22,30 +22,83 @@ class WarehouseController extends Controller
     /* Dashboard warehouse */
     public function dashboard()
     {
-        // Batches waiting to be received
-        $pendingBatches = Batch::where('process_stage', 'dry_process')
+        // Calculate stats for KPI cards
+        $stats = [
+            'pending_receive' => Batch::where('process_stage', 'dry_process')
+                ->where('status', 'dispatched')
+                ->count(),
+            
+            'zircon_stock' => Batch::where('process_stage', 'warehouse')
+                ->where('status', 'received')
+                ->whereNull('export_status')
+                ->whereHas('productCode', function($q) {
+                    $q->where('material', 'ZIRCON');
+                })
+                ->sum('current_weight'),
+            
+            'ilmenite_stock' => Batch::where('process_stage', 'warehouse')
+                ->where('status', 'received')
+                ->whereNull('export_status')
+                ->whereHas('productCode', function($q) {
+                    $q->where('material', 'ILMENITE');
+                })
+                ->sum('current_weight'),
+            
+            'monasit_stock' => Batch::where('process_stage', 'warehouse')
+                ->where('status', 'received')
+                ->whereNull('export_status')
+                ->whereHas('productCode', function($q) {
+                    $q->where('material', 'MON');
+                })
+                ->sum('current_weight'),
+        ];
+
+        // Pending receive dari dry process
+        $pendingReceive = Batch::where('process_stage', 'dry_process')
             ->where('status', 'dispatched')
             ->with(['productCode', 'parent'])
             ->latest()
             ->get();
 
-        // Batches in warehouse
-        $warehouseBatches = Batch::where('process_stage', 'warehouse')
+        // Current stocked batches di warehouse
+        $stockedBatches = Batch::where('process_stage', 'warehouse')
             ->where('status', 'received')
             ->whereNull('export_status')
             ->with(['productCode'])
             ->latest()
             ->get();
 
-        // Batches exported
-        $exportedBatches = Batch::where('process_stage', 'warehouse')
-            ->whereNotNull('export_status')
-            ->with(['productCode'])
-            ->latest()
+        // Recent exports
+        $recentExports = ExportLog::with(['batch.productCode'])
+            ->orderBy('exported_at', 'desc')
             ->limit(20)
             ->get();
 
-        return view('warehouse.dashboard', compact('pendingBatches', 'warehouseBatches', 'exportedBatches'));
+        // Stock composition untuk pie chart
+        $stockComposition = collect([
+            [
+                'material' => 'Zircon',
+                'weight' => $stats['zircon_stock'],
+            ],
+            [
+                'material' => 'Ilmenite',
+                'weight' => $stats['ilmenite_stock'],
+            ],
+            [
+                'material' => 'Monasit',
+                'weight' => $stats['monasit_stock'],
+            ],
+        ])->filter(function($item) {
+            return $item['weight'] > 0;
+        });
+
+        return view('warehouse.dashboard', compact(
+            'stats',
+            'pendingReceive',
+            'stockedBatches',
+            'recentExports',
+            'stockComposition'
+        ));
     }
 
     /* Receive batch dari dry process (CP4) */
@@ -127,7 +180,7 @@ class WarehouseController extends Controller
     /* Show export form (Zircon & Ilmenite only) */
     public function exportForm(Batch $batch)
     {
-        // Validate material (hanya Zircon & Ilmenite boleh export)
+        // Validate material
         $material = $batch->productCode->material;
         if (!in_array($material, ['ZIRCON', 'ILMENITE'])) {
             return redirect()
@@ -151,17 +204,17 @@ class WarehouseController extends Controller
         try {
             DB::beginTransaction();
 
-            // Validate batch in warehouse
+            // Validate batch
             if ($batch->process_stage !== 'warehouse' || $batch->status !== 'received') {
                 throw new \Exception('Batch tidak ready untuk export');
             }
 
-            // Validate material can be exported (NOT MON!)
+            // Validate material
             $material = $batch->productCode->material;
             $exportableMaterials = ['ZIRCON', 'ILMENITE'];
             
             if (!in_array($material, $exportableMaterials)) {
-                throw new \Exception("Material {$material} tidak boleh diekspor! Hanya ZIRCON dan ILMENITE yang boleh diekspor.");
+                throw new \Exception("Material {$material} tidak boleh diekspor!");
             }
 
             // Create export log
@@ -183,23 +236,23 @@ class WarehouseController extends Controller
                 'export_destination' => $validated['destination'],
                 'export_manifest_number' => $validated['manifest_number'],
                 'status' => 'exported',
-                'current_weight' => 0, // Stock berkurang
+                'current_weight' => 0,
             ]);
 
-            // Record checkpoint CP5
+            // Record checkpoint
             $checkpointCode = $material === 'ZIRCON' ? 'CP5.1' : 'CP5.2';
             $this->checkpointService->recordCheckpoint(
                 $batch,
                 $checkpointCode,
                 Auth::id(),
-                "Exported to {$validated['destination']} - {$validated['export_type']}"
+                "Exported to {$validated['destination']}"
             );
 
             DB::commit();
 
             return redirect()
                 ->route('warehouse.dashboard')
-                ->with('success', "Batch {$batch->batch_code} berhasil diekspor ke {$validated['destination']}!");
+                ->with('success', "Batch {$batch->batch_code} berhasil diekspor!");
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -210,20 +263,20 @@ class WarehouseController extends Controller
     /* Show split form (Monasit only) */
     public function splitForm(Batch $batch)
     {
-        // Validate material harus Monasit
+        // Validate material
         if ($batch->productCode->material !== 'MON') {
             return redirect()
                 ->route('warehouse.dashboard')
                 ->with('error', 'Hanya Monasit yang bisa di-split untuk Lab');
         }
 
-        // Get all MON product codes
+        // Get MON product codes
         $productCodes = ProductCode::where('material', 'MON')->get();
         
         return view('warehouse.split-lab', compact('batch', 'productCodes'));
     }
 
-    /* Split Monasit untuk Lab (POST - multiple 50kg batches) */
+    /* Split Monasit untuk Lab (POST) */
     public function splitForLab(Request $request, Batch $batch)
     {
         $validated = $request->validate([
@@ -231,34 +284,27 @@ class WarehouseController extends Controller
             'weight_per_batch' => 'required|numeric|min:50|max:50',
             'lab_product_code_id' => 'required|exists:product_codes,id',
             'notes' => 'nullable|string',
-        ], [
-            'split_count.required' => 'Jumlah batch wajib diisi',
-            'split_count.max' => 'Maksimal 20 batch per split',
-            'weight_per_batch.required' => 'Berat per batch wajib diisi',
-            'weight_per_batch.min' => 'Berat minimal 50 kg',
-            'weight_per_batch.max' => 'Berat maksimal 50 kg (standar lab)',
-            'lab_product_code_id.required' => 'Product code lab wajib dipilih',
         ]);
 
         try {
             DB::beginTransaction();
 
-            // Validate material harus Monasit
+            // Validate material
             if ($batch->productCode->material !== 'MON') {
-                throw new \Exception("Hanya Monasit yang bisa di-split untuk Lab");
+                throw new \Exception("Hanya Monasit yang bisa di-split");
             }
 
-            // Validate product code is MON-LAB-SAMPLE
+            // Validate product code
             $sampleProductCode = ProductCode::findOrFail($validated['lab_product_code_id']);
             if ($sampleProductCode->material !== 'MON') {
                 throw new \Exception('Product code sample harus Monasit');
             }
 
-            // Calculate total weight needed
+            // Calculate total weight
             $totalWeightNeeded = $validated['split_count'] * $validated['weight_per_batch'];
             
             if ($totalWeightNeeded > $batch->current_weight) {
-                throw new \Exception("Berat total ({$totalWeightNeeded} kg) melebihi berat tersedia ({$batch->current_weight} kg)");
+                throw new \Exception("Total berat ({$totalWeightNeeded} kg) melebihi tersedia ({$batch->current_weight} kg)");
             }
 
             // Create multiple child batches
@@ -291,27 +337,26 @@ class WarehouseController extends Controller
                 'current_weight' => $batch->current_weight - $totalWeightNeeded,
             ]);
 
-            // Log activity
+            // Log
             $batch->logs()->create([
                 'action' => 'SPLIT_FOR_LAB',
                 'actor_user_id' => Auth::id(),
-                'notes' => "Split {$validated['split_count']} batch @ 50kg untuk lab (Total: {$totalWeightNeeded} kg). " . 
-                          ($validated['notes'] ?? ''),
+                'notes' => "Split {$validated['split_count']} batch @ 50kg (Total: {$totalWeightNeeded} kg)",
             ]);
 
             DB::commit();
 
             return redirect()
                 ->route('warehouse.dashboard')
-                ->with('success', "Berhasil split batch {$batch->batch_code} menjadi {$validated['split_count']} sample @ 50kg untuk Lab!");
+                ->with('success', "Berhasil split {$validated['split_count']} sample @ 50kg untuk Lab!");
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Gagal split batch: ' . $e->getMessage())->withInput();
+            return back()->with('error', 'Gagal split: ' . $e->getMessage())->withInput();
         }
     }
 
-    /* Dispatch Monasit sample ke Lab */
+    /* Dispatch sample ke Lab */
     public function dispatchToLab(Request $request, Batch $batch)
     {
         $validated = $request->validate([
@@ -321,27 +366,27 @@ class WarehouseController extends Controller
         try {
             DB::beginTransaction();
 
-            // Validate batch is split batch
+            // Validate
             if (!$batch->is_split) {
-                throw new \Exception("Batch ini belum di-split untuk Lab");
+                throw new \Exception("Batch ini belum di-split");
             }
 
             if ($batch->status !== 'ready') {
-                throw new \Exception("Batch tidak ready untuk dispatch");
+                throw new \Exception("Batch tidak ready");
             }
 
             // Update batch
             $batch->update([
                 'status' => 'in_transit',
                 'current_location' => 'In Transit to Lab',
-                'process_stage' => 'lab', // Important!
+                'process_stage' => 'lab',
             ]);
 
-            // Log activity
+            // Log
             $batch->logs()->create([
                 'action' => 'DISPATCH_TO_LAB',
                 'actor_user_id' => Auth::id(),
-                'notes' => $validated['notes'] ?? "Dispatch sample ke Lab untuk analisis LTJ",
+                'notes' => $validated['notes'] ?? "Dispatch ke Lab",
             ]);
 
             DB::commit();
