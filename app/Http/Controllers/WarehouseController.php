@@ -53,10 +53,10 @@ class WarehouseController extends Controller
                 ->sum('current_weight'),
         ];
 
-        // Pending receive dari dry process
+        // Pending receive dari dry process - FIXED: parent → parentBatch
         $pendingReceive = Batch::where('process_stage', 'dry_process')
             ->where('status', 'dispatched')
-            ->with(['productCode', 'parent'])
+            ->with(['productCode', 'parentBatch']) // ✅ FIXED!
             ->latest()
             ->get();
 
