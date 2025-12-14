@@ -114,13 +114,13 @@ class DryProcessController extends Controller
 
             // Update batch based on action
             if ($validated['action'] === 'stock') {
-                // Stock ke gudang sementara
+                // Stock ke gudang sementara - REMOVED stocked_at column
                 $batch->update([
                     'status' => 'stocked',
                     'current_location' => 'Dry Process - Stockpile',
                     'process_stage' => 'dry_process',
                     'stockpile_location' => $validated['location'],
-                    'stocked_at' => now(),
+                    // ✅ REMOVED: 'stocked_at' => now(),
                 ]);
 
                 $message = "Batch {$batch->batch_code} berhasil diterima dan di-stock di: {$validated['location']}";
@@ -334,12 +334,12 @@ class DryProcessController extends Controller
                 }
             }
 
-            // Update parent batch
+            // Update parent batch - REMOVED dry_process_completed_at
             $totalChildWeight = array_sum(array_map(fn($b) => $b->current_weight, $createdBatches));
             $batch->update([
                 'status' => 'processed',
                 'current_weight' => $totalWeight - $totalChildWeight,
-                'dry_process_completed_at' => now(),
+                // ✅ REMOVED: 'dry_process_completed_at' => now(),
             ]);
 
             // Record checkpoint CP3 on parent

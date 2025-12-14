@@ -155,7 +155,6 @@ class WarehouseController extends Controller
                 'status' => 'received',
                 'current_location' => 'Warehouse',
                 'process_stage' => 'warehouse',
-                'warehouse_received_at' => now(),
             ]);
             
             // Log activity
