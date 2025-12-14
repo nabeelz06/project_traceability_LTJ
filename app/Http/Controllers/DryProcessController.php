@@ -21,21 +21,52 @@ class DryProcessController extends Controller
     /* Dashboard dry process */
     public function dashboard()
     {
-        // Batches waiting to receive dari wet process
-        $pendingBatches = Batch::where('process_stage', 'wet_process')
+        // Calculate stats for KPI cards
+        $stats = [
+            // Pending receive from wet process (status: dispatched, stage: wet_process)
+            'pending_receive' => Batch::where('process_stage', 'wet_process')
+                ->where('status', 'dispatched')
+                ->count(),
+            
+            // In stockpile (status: stocked, stage: dry_process)
+            'in_stock' => Batch::where('process_stage', 'dry_process')
+                ->where('status', 'stocked')
+                ->count(),
+            
+            // Currently processing (status: processing, stage: dry_process)
+            'in_processing' => Batch::where('process_stage', 'dry_process')
+                ->where('status', 'processing')
+                ->count(),
+            
+            // Processed and ready to dispatch (child batches, status: ready)
+            'processed_ready' => Batch::where('process_stage', 'dry_process')
+                ->where('status', 'ready')
+                ->whereNotNull('parent_batch_id')
+                ->count(),
+        ];
+
+        // Batches pending receive from wet process
+        $pendingReceive = Batch::where('process_stage', 'wet_process')
             ->where('status', 'dispatched')
-            ->with(['productCode', 'createdBy'])
+            ->with(['productCode', 'creator'])
             ->latest()
             ->get();
 
-        // Batches yang sudah di-receive, ready untuk diproses
-        $receivedBatches = Batch::where('process_stage', 'dry_process')
-            ->where('status', 'received')
+        // Batches already received, now in stock/stockpile
+        $stockBatches = Batch::where('process_stage', 'dry_process')
+            ->where('status', 'stocked')
             ->with(['productCode'])
             ->latest()
             ->get();
 
-        // Batches hasil proses (child batches ready to dispatch)
+        // Batches currently being processed
+        $processingBatches = Batch::where('process_stage', 'dry_process')
+            ->where('status', 'processing')
+            ->with(['productCode'])
+            ->latest()
+            ->get();
+
+        // Child batches (hasil proses) ready to dispatch to warehouse
         $processedBatches = Batch::where('process_stage', 'dry_process')
             ->where('status', 'ready')
             ->whereNotNull('parent_batch_id')
@@ -43,13 +74,21 @@ class DryProcessController extends Controller
             ->latest()
             ->get();
 
-        return view('dry-process.dashboard', compact('pendingBatches', 'receivedBatches', 'processedBatches'));
+        return view('dry-process.dashboard', compact(
+            'stats',
+            'pendingReceive',
+            'stockBatches',
+            'processingBatches',
+            'processedBatches'
+        ));
     }
 
     /* Receive batch dari wet process (CP2) */
     public function receive(Request $request, Batch $batch)
     {
         $validated = $request->validate([
+            'action' => 'required|in:stock,process',
+            'location' => 'required_if:action,stock|nullable|string|max:255',
             'notes' => 'nullable|string',
         ]);
 
@@ -73,25 +112,41 @@ class DryProcessController extends Controller
                 $validated['notes'] ?? "Diterima di Dry Process"
             );
 
-            // Update batch status
-            $batch->update([
-                'status' => 'received',
-                'current_location' => 'Dry Process',
-                'process_stage' => 'dry_process',
-            ]);
+            // Update batch based on action
+            if ($validated['action'] === 'stock') {
+                // Stock ke gudang sementara
+                $batch->update([
+                    'status' => 'stocked',
+                    'current_location' => 'Dry Process - Stockpile',
+                    'process_stage' => 'dry_process',
+                    'stockpile_location' => $validated['location'],
+                    'stocked_at' => now(),
+                ]);
+
+                $message = "Batch {$batch->batch_code} berhasil diterima dan di-stock di: {$validated['location']}";
+            } else {
+                // Langsung proses
+                $batch->update([
+                    'status' => 'processing',
+                    'current_location' => 'Dry Process - Processing',
+                    'process_stage' => 'dry_process',
+                ]);
+
+                $message = "Batch {$batch->batch_code} berhasil diterima dan siap diproses!";
+            }
 
             // Log activity
             $batch->logs()->create([
                 'action' => 'DRY_RECEIVE',
                 'actor_user_id' => Auth::id(),
-                'notes' => "Received {$batch->current_weight} kg at Dry Process",
+                'notes' => "Received {$batch->current_weight} kg. Action: " . strtoupper($validated['action']),
             ]);
 
             DB::commit();
 
             return redirect()
                 ->route('dry-process.dashboard')
-                ->with('success', "Batch {$batch->batch_code} berhasil diterima di Dry Process!");
+                ->with('success', $message);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -99,11 +154,47 @@ class DryProcessController extends Controller
         }
     }
 
+    /* Retrieve batch dari stockpile untuk diproses */
+    public function retrieve(Request $request, Batch $batch)
+    {
+        try {
+            DB::beginTransaction();
+
+            // Validate batch in stockpile
+            if ($batch->status !== 'stocked') {
+                throw new \Exception('Batch tidak ada di stockpile');
+            }
+
+            // Update to processing
+            $batch->update([
+                'status' => 'processing',
+                'current_location' => 'Dry Process - Processing',
+            ]);
+
+            // Log activity
+            $batch->logs()->create([
+                'action' => 'RETRIEVE_FROM_STOCK',
+                'actor_user_id' => Auth::id(),
+                'notes' => $request->input('notes') ?? 'Retrieved from stockpile for processing',
+            ]);
+
+            DB::commit();
+
+            return redirect()
+                ->route('dry-process.dashboard')
+                ->with('success', "Batch {$batch->batch_code} berhasil diambil dari stockpile untuk diproses");
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()->withErrors(['error' => 'Gagal retrieve batch: ' . $e->getMessage()]);
+        }
+    }
+
     /* Form untuk input kandungan 3 konsentrat */
     public function processForm(Batch $batch)
     {
         // Validate batch ready untuk diproses
-        if ($batch->process_stage !== 'dry_process' || $batch->status !== 'received') {
+        if ($batch->process_stage !== 'dry_process' || $batch->status !== 'processing') {
             return redirect()
                 ->route('dry-process.dashboard')
                 ->with('error', 'Batch tidak ready untuk diproses');
@@ -150,7 +241,7 @@ class DryProcessController extends Controller
             $ilmeniteWeight = ($totalWeight * $validated['ilmenite_percentage']) / 100;
             $monasitWeight = ($totalWeight * $validated['monasit_percentage']) / 100;
 
-            // ✅ FIXED: Get product codes by CODE (not by material+spec)
+            // Get product codes by CODE (not by material+spec)
             $zirconProductCode = ProductCode::firstOrCreate(
                 ['code' => 'DRY-ZIRCON-CON'],
                 [
