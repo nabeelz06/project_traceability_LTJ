@@ -195,7 +195,7 @@ Route::middleware(['auth', 'user.active'])->group(function () {
 });
 
 // Emergency DB Cleaner (Development Only - Remove in Production)
-Route::get('/force-reset-db', function () {
+    Route::get('/force-reset-db', function () {
     $tables = [
         'system_logs', 'shipments', 'rfid_writes', 'documents', 'batch_logs',
         'batches', 'devices', 'product_codes', 'users', 'partners',

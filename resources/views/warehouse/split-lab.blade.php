@@ -138,12 +138,17 @@
                 <select name="lab_product_code_id" class="form-select" required>
                     <option value="">-- Pilih Product Code --</option>
                     @foreach($productCodes as $code)
-                        @if($code->material == 'MON' && str_contains($code->spec, 'SAMPLE'))
-                        <option value="{{ $code->id }}">{{ $code->code }} - {{ $code->description }}</option>
+                        @if($code->material == 'MON' && (str_contains($code->spec, 'SAMPLE') || $code->code == 'MON-LAB-SAMPLE'))
+                        <option value="{{ $code->id }}" {{ $code->code == 'MON-LAB-SAMPLE' ? 'selected' : '' }}>
+                            {{ $code->code }} - {{ $code->description }}
+                        </option>
                         @endif
                     @endforeach
                 </select>
-                <small class="text-muted">Pilih product code untuk sample laboratorium</small>
+                <small class="text-muted">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Pilih product code untuk sample laboratorium (recommended: MON-LAB-SAMPLE)
+                </small>
             </div>
 
             <!-- Weight per Batch (Fixed 50kg) -->
